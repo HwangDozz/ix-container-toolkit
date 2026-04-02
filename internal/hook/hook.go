@@ -6,7 +6,7 @@
 //
 //  1. Reads the container state to find the container bundle/rootfs.
 //  2. Inspects the container spec to determine which GPUs to expose via the
-//     ILUVATAR_VISIBLE_DEVICES environment variable.
+//     ILUVATAR_COREX_VISIBLE_DEVICES environment variable.
 //  3. Discovers /dev/iluvatar* device nodes on the host that correspond to the
 //     requested GPUs.
 //  4. Bind-mounts the device nodes and driver shared libraries into the container.
@@ -60,7 +60,11 @@ func (h *Hook) Run(r io.Reader) error {
 	visibleDevices := h.visibleDevices(spec)
 	if visibleDevices == "" && !h.cfg.Hook.DisableRequire {
 		// Container did not request any GPU — nothing to do.
-		h.log.Debug("no GPU requested (ILUVATAR_VISIBLE_DEVICES not set), skipping")
+		h.log.Debug("no GPU requested (ILUVATAR_COREX_VISIBLE_DEVICES not set), skipping")
+		return nil
+	}
+	if strings.EqualFold(strings.TrimSpace(visibleDevices), "none") {
+		h.log.Debug("ILUVATAR_COREX_VISIBLE_DEVICES=none, skipping GPU injection")
 		return nil
 	}
 
@@ -83,10 +87,13 @@ func (h *Hook) Run(r io.Reader) error {
 			h.log.Warn("no Iluvatar devices found, continuing because disableRequire=true")
 			return nil
 		}
-		return fmt.Errorf("no Iluvatar devices found for ILUVATAR_VISIBLE_DEVICES=%q", visibleDevices)
+		return fmt.Errorf("no Iluvatar devices found for ILUVATAR_COREX_VISIBLE_DEVICES=%q", visibleDevices)
 	}
 
-	// 5. Inject devices and driver libraries.
+	// 5. Resolve symlinks in driver paths (e.g. /usr/local/corex → /usr/local/corex-4.3.0).
+	h.resolveDriverPaths()
+
+	// 6. Inject devices and driver libraries.
 	if err := h.injectDevices(rootfs, devs); err != nil {
 		return fmt.Errorf("injecting devices: %w", err)
 	}
@@ -102,7 +109,7 @@ func (h *Hook) Run(r io.Reader) error {
 	return nil
 }
 
-// visibleDevices returns the value of the ILUVATAR_VISIBLE_DEVICES (or
+// visibleDevices returns the value of the ILUVATAR_COREX_VISIBLE_DEVICES (or
 // configured equivalent) environment variable in the container spec.
 func (h *Hook) visibleDevices(spec *specs.Spec) string {
 	if spec.Process == nil {
@@ -115,6 +122,48 @@ func (h *Hook) visibleDevices(spec *specs.Spec) string {
 		}
 	}
 	return ""
+}
+
+// resolveDriverPaths resolves symlinks in the configured driver paths.
+// For example, if ContainerDriverRoot is /usr/local/corex but the real path on
+// the host is /usr/local/corex-4.3.0 (symlinked), the library/binary paths
+// are updated to point to the real paths so that bind-mounts work correctly.
+func (h *Hook) resolveDriverPaths() {
+	// Resolve ContainerDriverRoot (used for relative path computation).
+	origRoot := h.cfg.Hook.ContainerDriverRoot
+	resolvedRoot, err := filepath.EvalSymlinks(origRoot)
+	if err == nil && resolvedRoot != origRoot {
+		h.log.WithFields(logrus.Fields{
+			"original": origRoot,
+			"resolved": resolvedRoot,
+		}).Info("resolved symlink for driver root")
+		// Keep ContainerDriverRoot as the container-side mount target (the
+		// non-versioned path), but resolve library/binary host paths.
+	}
+
+	// Resolve each library path.
+	for i, p := range h.cfg.Hook.DriverLibraryPaths {
+		resolved, err := filepath.EvalSymlinks(p)
+		if err == nil && resolved != p {
+			h.log.WithFields(logrus.Fields{
+				"original": p,
+				"resolved": resolved,
+			}).Debug("resolved symlink for driver library path")
+			h.cfg.Hook.DriverLibraryPaths[i] = resolved
+		}
+	}
+
+	// Resolve each binary path.
+	for i, p := range h.cfg.Hook.DriverBinaryPaths {
+		resolved, err := filepath.EvalSymlinks(p)
+		if err == nil && resolved != p {
+			h.log.WithFields(logrus.Fields{
+				"original": p,
+				"resolved": resolved,
+			}).Debug("resolved symlink for driver binary path")
+			h.cfg.Hook.DriverBinaryPaths[i] = resolved
+		}
+	}
 }
 
 // injectDevices bind-mounts Iluvatar device nodes into the container.
@@ -132,8 +181,14 @@ func (h *Hook) injectDevices(rootfs string, devs []device.Device) error {
 	return nil
 }
 
-// injectDriverLibraries bind-mounts host driver library directories into the
-// container and registers them with the dynamic linker.
+// injectDriverLibraries bind-mounts host driver libraries into the container
+// and registers them with the dynamic linker.
+//
+// When LibraryFilterMode is "so-only" (default), individual .so files are
+// mounted instead of the whole directory, avoiding the ~12GB Python packages
+// and other SDK components under lib64/python3/, cmake/, etc.
+// When LibraryFilterMode is "directory", the entire directory is mounted
+// (legacy behavior).
 func (h *Hook) injectDriverLibraries(rootfs string) error {
 	containerRoot := h.cfg.Hook.ContainerDriverRoot
 
@@ -143,22 +198,28 @@ func (h *Hook) injectDriverLibraries(rootfs string) error {
 			continue
 		}
 
-		// Map the host path under ContainerDriverRoot inside the container.
-		// e.g. /usr/local/corex/lib64 → <rootfs>/usr/local/corex/lib64
+		// Compute the container-side target directory.
 		rel, err := filepath.Rel(containerRoot, hostPath)
 		if err != nil || strings.HasPrefix(rel, "..") {
-			// If the host path doesn't fall under containerRoot, mount it directly.
 			rel = filepath.Base(hostPath)
 		}
-		target := filepath.Join(rootfs, containerRoot, rel)
+		targetDir := filepath.Join(rootfs, containerRoot, rel)
 
-		if err := os.MkdirAll(target, 0755); err != nil {
-			return fmt.Errorf("creating lib dir %s: %w", target, err)
+		if h.cfg.Hook.LibraryFilterMode == "directory" {
+			// Legacy: mount the entire directory.
+			if err := os.MkdirAll(targetDir, 0755); err != nil {
+				return fmt.Errorf("creating lib dir %s: %w", targetDir, err)
+			}
+			if err := bindMount(hostPath, targetDir); err != nil {
+				return fmt.Errorf("bind-mounting lib dir %s: %w", hostPath, err)
+			}
+			h.log.WithField("path", hostPath).Debug("driver library dir injected (directory mode)")
+		} else {
+			// so-only: mount individual .so files, skip excluded subdirectories.
+			if err := h.mountSharedLibraries(hostPath, targetDir); err != nil {
+				return fmt.Errorf("mounting shared libraries from %s: %w", hostPath, err)
+			}
 		}
-		if err := bindMount(hostPath, target); err != nil {
-			return fmt.Errorf("bind-mounting lib dir %s: %w", hostPath, err)
-		}
-		h.log.WithField("path", hostPath).Debug("driver library dir injected")
 	}
 
 	// Add an ld.so.conf.d entry so that the dynamic linker inside the container
@@ -168,6 +229,83 @@ func (h *Hook) injectDriverLibraries(rootfs string) error {
 	}
 
 	return nil
+}
+
+// mountSharedLibraries walks hostDir (non-recursively) and bind-mounts only
+// shared library files (.so, .so.1, .so.1.2.3, etc.) into targetDir, skipping
+// subdirectories listed in LibraryExcludeDirs.
+func (h *Hook) mountSharedLibraries(hostDir, targetDir string) error {
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("creating target dir %s: %w", targetDir, err)
+	}
+
+	excludeSet := make(map[string]bool)
+	for _, d := range h.cfg.Hook.LibraryExcludeDirs {
+		excludeSet[d] = true
+	}
+
+	entries, err := os.ReadDir(hostDir)
+	if err != nil {
+		return fmt.Errorf("reading directory %s: %w", hostDir, err)
+	}
+
+	mounted := 0
+	for _, entry := range entries {
+		name := entry.Name()
+
+		if entry.IsDir() {
+			if excludeSet[name] {
+				h.log.WithField("dir", name).Debug("skipping excluded subdirectory")
+				continue
+			}
+			// For non-excluded subdirectories (e.g. nvvm/), recursively mount.
+			subHost := filepath.Join(hostDir, name)
+			subTarget := filepath.Join(targetDir, name)
+			if err := os.MkdirAll(subTarget, 0755); err != nil {
+				return fmt.Errorf("creating subdir %s: %w", subTarget, err)
+			}
+			if err := bindMount(subHost, subTarget); err != nil {
+				return fmt.Errorf("bind-mounting subdir %s: %w", subHost, err)
+			}
+			h.log.WithField("dir", name).Debug("subdirectory injected")
+			continue
+		}
+
+		// Only mount shared library files (.so or .so.*)
+		if !isSharedLibrary(name) {
+			continue
+		}
+
+		src := filepath.Join(hostDir, name)
+		dst := filepath.Join(targetDir, name)
+		if err := ensureFile(dst); err != nil {
+			return fmt.Errorf("creating placeholder for %s: %w", dst, err)
+		}
+		if err := bindMount(src, dst); err != nil {
+			return fmt.Errorf("bind-mounting library %s: %w", src, err)
+		}
+		mounted++
+	}
+
+	h.log.WithFields(logrus.Fields{
+		"hostDir": hostDir,
+		"count":   mounted,
+	}).Info("shared libraries injected (so-only mode)")
+	return nil
+}
+
+// isSharedLibrary returns true if the filename looks like a shared library:
+// libfoo.so, libfoo.so.1, libfoo.so.1.2.3, etc.
+func isSharedLibrary(name string) bool {
+	// Match *.so
+	if strings.HasSuffix(name, ".so") {
+		return true
+	}
+	// Match *.so.N[.N...]
+	if idx := strings.Index(name, ".so."); idx >= 0 {
+		return true
+	}
+	return false
 }
 
 // injectDriverBinaries bind-mounts host driver binary directories into the container.

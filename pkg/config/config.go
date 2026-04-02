@@ -59,8 +59,20 @@ type HookConfig struct {
 	DisableRequire bool `json:"disableRequire,omitempty"`
 
 	// DeviceListEnvvar is the environment variable that specifies which GPUs to expose.
-	// Defaults to ILUVATAR_VISIBLE_DEVICES.
+	// Defaults to ILUVATAR_COREX_VISIBLE_DEVICES.
 	DeviceListEnvvar string `json:"deviceListEnvvar,omitempty"`
+
+	// LibraryFilterMode controls how driver library directories are mounted:
+	//   "directory" — bind-mount the entire directory (legacy behavior).
+	//   "so-only"   — only mount .so/.so.* shared libraries, skipping subdirectories
+	//                  and static archives. This avoids mounting ~12GB of Python
+	//                  packages that live under lib64/python3/.
+	// Defaults to "so-only".
+	LibraryFilterMode string `json:"libraryFilterMode,omitempty"`
+
+	// LibraryExcludeDirs is a list of subdirectory names to exclude when
+	// LibraryFilterMode is "so-only". Defaults to ["python3", "cmake", "clang"].
+	LibraryExcludeDirs []string `json:"libraryExcludeDirs,omitempty"`
 }
 
 // Defaults returns a Config populated with sensible defaults.
@@ -73,7 +85,9 @@ func Defaults() *Config {
 			DriverLibraryPaths:  []string{"/usr/local/corex/lib64", "/usr/local/corex/lib"},
 			DriverBinaryPaths:   []string{"/usr/local/corex/bin"},
 			ContainerDriverRoot: "/usr/local/corex",
-			DeviceListEnvvar:    "ILUVATAR_VISIBLE_DEVICES",
+			DeviceListEnvvar:    "ILUVATAR_COREX_VISIBLE_DEVICES",
+			LibraryFilterMode:   "so-only",
+			LibraryExcludeDirs:  []string{"python3", "cmake", "clang"},
 		},
 	}
 }
@@ -115,9 +129,15 @@ func (c *Config) applyDefaults() {
 		c.LogLevel = "info"
 	}
 	if c.Hook.DeviceListEnvvar == "" {
-		c.Hook.DeviceListEnvvar = "ILUVATAR_VISIBLE_DEVICES"
+		c.Hook.DeviceListEnvvar = "ILUVATAR_COREX_VISIBLE_DEVICES"
 	}
 	if c.Hook.ContainerDriverRoot == "" {
 		c.Hook.ContainerDriverRoot = "/usr/local/corex"
+	}
+	if c.Hook.LibraryFilterMode == "" {
+		c.Hook.LibraryFilterMode = "so-only"
+	}
+	if len(c.Hook.LibraryExcludeDirs) == 0 {
+		c.Hook.LibraryExcludeDirs = []string{"python3", "cmake", "clang"}
 	}
 }
