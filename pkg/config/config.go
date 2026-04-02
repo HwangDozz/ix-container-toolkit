@@ -15,7 +15,7 @@ const (
 	DefaultUnderlyingRuntime = "runc"
 
 	// DefaultHookPath is where ix-container-hook binary is installed.
-	DefaultHookPath = "/usr/bin/ix-container-hook"
+	DefaultHookPath = "/usr/local/bin/ix-container-hook"
 
 	// DevicePrefix is the prefix of Iluvatar GPU device nodes.
 	DevicePrefix = "/dev/iluvatar"

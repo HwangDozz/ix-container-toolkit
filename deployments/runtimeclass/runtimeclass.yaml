@@ -1,0 +1,19 @@
+---
+# RuntimeClass for Iluvatar GPU workloads.
+# Pods that need GPU access must specify:
+#   spec:
+#     runtimeClassName: ix
+#
+# This directs containerd to use ix-container-runtime (registered in
+# containerd's config.toml by ix-installer) instead of the default runtime.
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: ix
+handler: ix
+scheduling:
+  nodeClassification:
+    tolerations:
+      - key: iluvatar.ai/gpu
+        operator: Exists
+        effect: NoSchedule

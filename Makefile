@@ -6,7 +6,7 @@ GOOS   ?= linux
 GOARCH ?= amd64
 LDFLAGS := -s -w
 
-.PHONY: all build test docker-build docker-push deploy clean
+.PHONY: all build test docker-build docker-push deploy undeploy clean
 
 all: build
 
@@ -34,14 +34,20 @@ docker-build:
 docker-push: docker-build
 	docker push $(IMAGE)
 
-## Deploy ix-toolkit to the current Kubernetes cluster
+## Deploy ix-toolkit to the current Kubernetes cluster.
+## Substitutes the IMAGE placeholder in daemonset.yaml at deploy time so you
+## don't have to edit the YAML by hand:
+##   make deploy IMAGE_REGISTRY=myregistry.example.com/ix-toolkit IMAGE_TAG=v1.0
 deploy:
 	kubectl apply -f deployments/rbac/rbac.yaml
-	kubectl apply -f deployments/daemonset/daemonset.yaml
+	kubectl apply -f deployments/runtimeclass/runtimeclass.yaml
+	sed 's|ix-toolkit/installer:latest|$(IMAGE)|g' deployments/daemonset/daemonset.yaml \
+	  | kubectl apply -f -
 
 ## Remove ix-toolkit from the cluster
 undeploy:
 	kubectl delete -f deployments/daemonset/daemonset.yaml --ignore-not-found
+	kubectl delete -f deployments/runtimeclass/runtimeclass.yaml --ignore-not-found
 	kubectl delete -f deployments/rbac/rbac.yaml --ignore-not-found
 
 clean:

@@ -49,6 +49,11 @@ spec:
           securityContext:
             privileged: true
           env:
+            # Injected by the Downward API — used by ix-installer to label this node.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             # Where to write binaries on the host (relative to /host).
             - name: HOST_BIN_DIR
               value: /usr/local/bin
@@ -80,9 +85,8 @@ spec:
       # Without this Kubernetes would keep restarting the init container.  #
       # ------------------------------------------------------------------ #
       containers:
-        - name: ix-toolkit-sleep
-          image: gcr.io/distroless/static:nonroot
-          command: ["/bin/sh", "-c", "while true; do sleep 86400; done"]
+        - name: ix-toolkit-pause
+          image: registry.k8s.io/pause:3.9
           resources:
             requests:
               cpu: 10m

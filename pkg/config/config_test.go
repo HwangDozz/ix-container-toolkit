@@ -19,8 +19,8 @@ func TestDefaults(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Errorf("LogLevel = %q, want \"info\"", cfg.LogLevel)
 	}
-	if cfg.Hook.DeviceListEnvvar != "ILUVATAR_VISIBLE_DEVICES" {
-		t.Errorf("DeviceListEnvvar = %q, want \"ILUVATAR_VISIBLE_DEVICES\"", cfg.Hook.DeviceListEnvvar)
+	if cfg.Hook.DeviceListEnvvar != "ILUVATAR_COREX_VISIBLE_DEVICES" {
+		t.Errorf("DeviceListEnvvar = %q, want \"ILUVATAR_COREX_VISIBLE_DEVICES\"", cfg.Hook.DeviceListEnvvar)
 	}
 	if cfg.Hook.ContainerDriverRoot != "/usr/local/corex" {
 		t.Errorf("ContainerDriverRoot = %q, want \"/usr/local/corex\"", cfg.Hook.ContainerDriverRoot)
@@ -132,8 +132,8 @@ func TestLoad_AppliesDefaultsForEmptyFields(t *testing.T) {
 	if cfg.HookPath != DefaultHookPath {
 		t.Errorf("HookPath = %q, want %q", cfg.HookPath, DefaultHookPath)
 	}
-	if cfg.Hook.DeviceListEnvvar != "ILUVATAR_VISIBLE_DEVICES" {
-		t.Errorf("DeviceListEnvvar = %q, want \"ILUVATAR_VISIBLE_DEVICES\"", cfg.Hook.DeviceListEnvvar)
+	if cfg.Hook.DeviceListEnvvar != "ILUVATAR_COREX_VISIBLE_DEVICES" {
+		t.Errorf("DeviceListEnvvar = %q, want \"ILUVATAR_COREX_VISIBLE_DEVICES\"", cfg.Hook.DeviceListEnvvar)
 	}
 }
 

@@ -8,13 +8,20 @@
 //  2. Writes the ix-toolkit config to /etc/ix-toolkit/config.json.
 //  3. Patches the containerd config to register ix-container-runtime as a
 //     runtime class.
-//  4. (Optional) Restarts containerd via systemd dbus if RESTART_CONTAINERD=true.
+//  4. Labels the current node with iluvatar.ai/gpu=present via the Kubernetes
+//     API (using the in-cluster ServiceAccount token) so that the DaemonSet
+//     nodeSelector can match it.
+//  5. (Optional) Restarts containerd via systemd dbus if RESTART_CONTAINERD=true.
 package main
 
 import (
+	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,6 +54,7 @@ func main() {
 		{"copy binaries", func() error { return copyBinaries(hostBinDir) }},
 		{"write config", func() error { return writeConfig(hostConfigDir, hostBinDir) }},
 		{"patch containerd", func() error { return patchContainerd(hostBinDir) }},
+		{"label node", labelNode},
 		{"restart containerd", restartContainerd},
 	}
 
@@ -202,6 +210,93 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	return out.Sync()
+}
+
+// labelNode patches the current Kubernetes node with the label
+// iluvatar.ai/gpu=present using the in-cluster ServiceAccount token.
+// The node name is read from the NODE_NAME environment variable, which should
+// be injected by the DaemonSet via the Downward API.
+//
+// If the Kubernetes API is unreachable or NODE_NAME is unset, a warning is
+// logged and the step is skipped (non-fatal) so the rest of the installation
+// can proceed.
+func labelNode() error {
+	nodeName := os.Getenv("NODE_NAME")
+	if nodeName == "" {
+		log.Warn("NODE_NAME not set, skipping node labeling (add it via Downward API in the DaemonSet)")
+		return nil
+	}
+
+	// In-cluster credentials written by Kubernetes into every Pod.
+	const (
+		tokenFile = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+		caFile    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	)
+
+	token, err := os.ReadFile(tokenFile)
+	if err != nil {
+		log.WithError(err).Warn("cannot read ServiceAccount token, skipping node labeling")
+		return nil
+	}
+
+	caPool := x509.NewCertPool()
+	if caData, err := os.ReadFile(caFile); err == nil {
+		caPool.AppendCertsFromPEM(caData)
+	}
+
+	apiHost := os.Getenv("KUBERNETES_SERVICE_HOST")
+	apiPort := os.Getenv("KUBERNETES_SERVICE_PORT")
+	if apiHost == "" {
+		apiHost = "kubernetes.default.svc"
+	}
+	if apiPort == "" {
+		apiPort = "443"
+	}
+
+	// JSON Merge Patch: add label iluvatar.ai/gpu=present.
+	patch := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"labels": map[string]string{
+				"iluvatar.ai/gpu": "present",
+			},
+		},
+	}
+	body, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshalling label patch: %w", err)
+	}
+
+	url := fmt.Sprintf("https://%s:%s/api/v1/nodes/%s", apiHost, apiPort, nodeName)
+	req, err := http.NewRequest(http.MethodPatch, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("creating PATCH request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/merge-patch+json")
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{RootCAs: caPool},
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.WithError(err).Warn("PATCH node labels failed, skipping (non-fatal)")
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		log.WithFields(logrus.Fields{
+			"status": resp.StatusCode,
+			"body":   string(respBody),
+		}).Warn("PATCH node labels returned non-2xx, skipping (non-fatal)")
+		return nil
+	}
+
+	log.WithField("node", nodeName).Info("node labeled with iluvatar.ai/gpu=present")
+	return nil
 }
 
 func envOr(key, fallback string) string {

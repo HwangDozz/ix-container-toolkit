@@ -112,7 +112,7 @@ func TestContainerRequestsGPU_WithEnv(t *testing.T) {
 	r := testRuntime(defaultCfg())
 	spec := &specs.Spec{
 		Process: &specs.Process{
-			Env: []string{"PATH=/usr/bin", "ILUVATAR_VISIBLE_DEVICES=0"},
+			Env: []string{"PATH=/usr/bin", "ILUVATAR_COREX_VISIBLE_DEVICES=0"},
 		},
 	}
 	if !r.containerRequestsGPU(spec) {
@@ -144,7 +144,7 @@ func TestContainerRequestsGPU_EmptyEnvValue(t *testing.T) {
 	r := testRuntime(defaultCfg())
 	spec := &specs.Spec{
 		Process: &specs.Process{
-			Env: []string{"ILUVATAR_VISIBLE_DEVICES="},
+			Env: []string{"ILUVATAR_COREX_VISIBLE_DEVICES="},
 		},
 	}
 	// The key is present (even with empty value) → should return true.
@@ -199,7 +199,7 @@ func TestInjectHook_InjectsWhenGPURequested(t *testing.T) {
 		Version: "1.0.0",
 		Root:    &specs.Root{Path: "rootfs"},
 		Process: &specs.Process{
-			Env: []string{"ILUVATAR_VISIBLE_DEVICES=0"},
+			Env: []string{"ILUVATAR_COREX_VISIBLE_DEVICES=0"},
 		},
 	}
 	writeSpec(t, bundleDir, spec)
@@ -250,7 +250,7 @@ func TestInjectHook_PrependsBefore_ExistingHooks(t *testing.T) {
 		Version: "1.0.0",
 		Root:    &specs.Root{Path: "rootfs"},
 		Process: &specs.Process{
-			Env: []string{"ILUVATAR_VISIBLE_DEVICES=0"},
+			Env: []string{"ILUVATAR_COREX_VISIBLE_DEVICES=0"},
 		},
 		Hooks: &specs.Hooks{
 			Prestart: []specs.Hook{existing}, //nolint:staticcheck

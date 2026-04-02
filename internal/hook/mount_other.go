@@ -25,3 +25,7 @@ func ensureFile(path string) error {
 	}
 	return f.Close()
 }
+
+func runLdconfig(_ string) error {
+	return nil // no-op on non-Linux
+}

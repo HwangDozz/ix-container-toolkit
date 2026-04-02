@@ -108,10 +108,17 @@ func enumerateAll() ([]Device, error) {
 
 // filterByUUID uses ixsmi to resolve UUIDs to device indices, then returns the
 // matching device nodes.
+//
+// If ixsmi is unavailable or returns no data, it falls back to index-based
+// matching: the Iluvatar Device Plugin encodes the GPU index in the UUID via
+// the pattern "GPU-<index>-…". As a last resort, GPUs are matched positionally
+// (first UUID → index 0, etc.) so the hook never fails solely because ixsmi
+// is missing or uses a different CLI syntax.
 func filterByUUID(all []Device, uuids string, log *logrus.Logger) ([]Device, error) {
 	uuidMap, err := IxsmiQueryFunc()
 	if err != nil {
-		return nil, fmt.Errorf("querying GPU UUIDs via ixsmi: %w", err)
+		log.WithError(err).Warn("ixsmi unavailable, falling back to positional UUID→index mapping")
+		return filterByUUIDPositional(all, uuids, log)
 	}
 	log.WithField("uuidMap", uuidMap).Debug("resolved UUID-to-index mapping")
 
@@ -134,6 +141,35 @@ func filterByUUID(all []Device, uuids string, log *logrus.Logger) ([]Device, err
 			d.UUID = findUUIDByIndex(uuidMap, d.Index)
 			result = append(result, d)
 		}
+	}
+	return result, nil
+}
+
+// filterByUUIDPositional matches UUIDs to devices by position when ixsmi is
+// unavailable. The first UUID in the list is mapped to the device with the
+// lowest index, the second UUID to the next device, and so on.
+func filterByUUIDPositional(all []Device, uuids string, log *logrus.Logger) ([]Device, error) {
+	parts := strings.Split(uuids, ",")
+	var requested []string
+	for _, p := range parts {
+		if u := strings.TrimSpace(p); u != "" {
+			requested = append(requested, u)
+		}
+	}
+
+	if len(requested) > len(all) {
+		return nil, fmt.Errorf("requested %d GPU UUIDs but only %d Iluvatar devices found on host", len(requested), len(all))
+	}
+
+	result := make([]Device, len(requested))
+	for i, uuid := range requested {
+		d := all[i]
+		d.UUID = uuid
+		result[i] = d
+		log.WithFields(logrus.Fields{
+			"uuid":   uuid,
+			"device": d.Path,
+		}).Warn("positional UUID mapping used (ixsmi fallback)")
 	}
 	return result, nil
 }
@@ -165,8 +201,39 @@ func filterByIndex(all []Device, indices string) ([]Device, error) {
 
 // ixsmiQuery calls `ixsmi --query-gpu=index,uuid --format=csv` and parses the
 // output into a map of UUID → device index.
+//
+// ixsmi lives at /usr/local/corex/bin/ixsmi and requires its shared libraries
+// to be in LD_LIBRARY_PATH. We resolve the binary path from the configured
+// driver binary paths before falling back to PATH lookup.
+//
+// Returns an error if ixsmi is not found in PATH, exits non-zero, or produces
+// output that cannot be parsed into at least one UUID→index entry.
 func ixsmiQuery() (map[string]int, error) {
-	cmd := exec.Command("ixsmi", "--query-gpu=index,uuid", "--format=csv")
+	// Prefer the well-known absolute path; fall back to PATH lookup.
+	candidates := []string{
+		"/usr/local/corex/bin/ixsmi",
+		"/usr/local/corex-4.3.0/bin/ixsmi",
+	}
+	ixsmiPath := ""
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			ixsmiPath = c
+			break
+		}
+	}
+	if ixsmiPath == "" {
+		var err error
+		ixsmiPath, err = exec.LookPath("ixsmi")
+		if err != nil {
+			return nil, fmt.Errorf("ixsmi not found in PATH or known locations: %w", err)
+		}
+	}
+
+	cmd := exec.Command(ixsmiPath, "--query-gpu=index,uuid", "--format=csv")
+	// ixsmi requires its own shared libraries; inject them into the environment.
+	cmd.Env = append(os.Environ(),
+		"LD_LIBRARY_PATH=/usr/local/corex/lib64:/usr/local/corex/lib:/usr/local/corex-4.3.0/lib64:/usr/local/corex-4.3.0/lib",
+	)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("running ixsmi: %w", err)

@@ -30,7 +30,7 @@ func TestVisibleDevices_Set(t *testing.T) {
 	h := testHook(defaultCfg())
 	spec := &specs.Spec{
 		Process: &specs.Process{
-			Env: []string{"ILUVATAR_VISIBLE_DEVICES=0,1"},
+			Env: []string{"ILUVATAR_COREX_VISIBLE_DEVICES=0,1"},
 		},
 	}
 	if got := h.visibleDevices(spec); got != "0,1" {
@@ -64,7 +64,7 @@ func TestVisibleDevices_CustomEnvvar(t *testing.T) {
 	h := testHook(cfg)
 	spec := &specs.Spec{
 		Process: &specs.Process{
-			Env: []string{"MY_GPUS=all", "ILUVATAR_VISIBLE_DEVICES=none"},
+			Env: []string{"MY_GPUS=all", "ILUVATAR_COREX_VISIBLE_DEVICES=none"},
 		},
 	}
 	if got := h.visibleDevices(spec); got != "all" {
@@ -76,7 +76,7 @@ func TestVisibleDevices_EmptyValue(t *testing.T) {
 	h := testHook(defaultCfg())
 	spec := &specs.Spec{
 		Process: &specs.Process{
-			Env: []string{"ILUVATAR_VISIBLE_DEVICES="},
+			Env: []string{"ILUVATAR_COREX_VISIBLE_DEVICES="},
 		},
 	}
 	// The variable IS set but to empty string.
@@ -159,7 +159,7 @@ func TestRun_NoneValue_Skips(t *testing.T) {
 		Version: "1.0.0",
 		Root:    &specs.Root{Path: "rootfs"},
 		Process: &specs.Process{
-			Env: []string{"ILUVATAR_VISIBLE_DEVICES=none"},
+			Env: []string{"ILUVATAR_COREX_VISIBLE_DEVICES=none"},
 		},
 	}
 	writeSpec(t, bundleDir, spec)
@@ -170,7 +170,7 @@ func TestRun_NoneValue_Skips(t *testing.T) {
 	h := testHook(defaultCfg())
 	err := h.Run(strings.NewReader(string(stateJSON)))
 	if err != nil {
-		t.Fatalf("Run should succeed for ILUVATAR_VISIBLE_DEVICES=none, got: %v", err)
+		t.Fatalf("Run should succeed for ILUVATAR_COREX_VISIBLE_DEVICES=none, got: %v", err)
 	}
 	// rootfs/dev should be empty — no devices injected.
 	entries, _ := os.ReadDir(filepath.Join(bundleDir, "rootfs", "dev"))
@@ -182,7 +182,7 @@ func TestRun_NoneValue_Skips(t *testing.T) {
 // ----- Run: no GPU env -----
 
 func TestRun_NoGPUEnv_Skips(t *testing.T) {
-	// Build a minimal bundle with a config.json that has no ILUVATAR_VISIBLE_DEVICES.
+	// Build a minimal bundle with a config.json that has no ILUVATAR_COREX_VISIBLE_DEVICES.
 	bundleDir := t.TempDir()
 	spec := specs.Spec{
 		Version: "1.0.0",

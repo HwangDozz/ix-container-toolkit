@@ -5,6 +5,7 @@ package hook
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"syscall"
 )
@@ -34,4 +35,25 @@ func ensureFile(path string) error {
 		return err
 	}
 	return f.Close()
+}
+
+// runLdconfig runs ldconfig inside the container rootfs to update ld.so.cache.
+// It forks a child process that chroots into rootfs and runs ldconfig, so the
+// parent process's working directory is unaffected.
+func runLdconfig(rootfs string) error {
+	ldconfig, err := exec.LookPath("ldconfig")
+	if err != nil {
+		// ldconfig not found on host — skip silently; containers that need
+		// it typically have their own ldconfig or rely on ld.so.conf.d.
+		return nil
+	}
+
+	cmd := exec.Command(ldconfig)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Chroot: rootfs,
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ldconfig in rootfs %s: %w (output: %s)", rootfs, err, string(out))
+	}
+	return nil
 }

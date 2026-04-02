@@ -228,6 +228,12 @@ func (h *Hook) injectDriverLibraries(rootfs string) error {
 		h.log.WithError(err).Warn("failed to inject ld.so.conf.d entry (non-fatal)")
 	}
 
+	// Regenerate ld.so.cache inside the container so that applications that
+	// rely on it (rather than ld.so.conf.d directly) can find the libraries.
+	if err := runLdconfig(rootfs); err != nil {
+		h.log.WithError(err).Warn("ldconfig in container rootfs failed (non-fatal)")
+	}
+
 	return nil
 }
 
