@@ -1,0 +1,29 @@
+---
+# RBAC: ServiceAccount + ClusterRole for the ix-toolkit DaemonSet
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ix-toolkit
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ix-toolkit
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ix-toolkit
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ix-toolkit
+subjects:
+  - kind: ServiceAccount
+    name: ix-toolkit
+    namespace: kube-system
