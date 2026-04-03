@@ -7,9 +7,9 @@
 
 当前项目已经具备可工作的三段式链路：
 
-- `ix-installer` 安装二进制、写配置、patch `containerd`
-- `ix-container-runtime` 在 `create` 阶段向 OCI spec 注入 `prestart hook`
-- `ix-container-hook` 在容器启动前把设备、驱动库、驱动工具和 linker 配置写入容器 rootfs
+- `accelerator-installer` 安装二进制、写配置、patch `containerd`
+- `accelerator-container-runtime` 在 `create` 阶段向 OCI spec 注入 `prestart hook`
+- `accelerator-container-hook` 在容器启动前把设备、驱动库、驱动工具和 linker 配置写入容器 rootfs
 
 但实现仍然强绑定 Iluvatar：
 
@@ -31,7 +31,7 @@
   - `/dev/iluvatarN`
   - 驱动库目录内容
   - 驱动工具目录内容
-  - `/etc/ld.so.conf.d/ix-toolkit.conf`
+  - `/etc/ld.so.conf.d/accelerator-toolkit.conf`
   - `ldconfig`
 
 ### 2.2 当前缺口

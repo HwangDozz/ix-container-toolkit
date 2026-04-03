@@ -1,0 +1,72 @@
+metadata:
+  name: ascend-310p
+  vendor: Ascend
+  modelFamily: 310P
+  version: v1alpha1
+
+runtime:
+  handlerName: TODO
+  runtimeClassName: TODO
+  underlyingRuntime: runc
+  hookStage: prestart
+  hookBinary: /usr/local/bin/accelerator-container-hook
+
+kubernetes:
+  resourceNames:
+    - TODO
+  nodeLabels: {}
+  runtimeClassScheduling:
+    nodeSelector: {}
+    tolerations: []
+
+device:
+  selectorEnvVars:
+    - TODO
+  selectorFormats:
+    - TODO
+  deviceGlobs:
+    - TODO
+  controlDeviceGlobs: []
+  mapping:
+    strategy:
+      primary: TODO
+      fallback: TODO
+    command:
+      pathCandidates:
+        - TODO
+      args:
+        - TODO
+      env: {}
+    parser: TODO
+  fallbackPolicy:
+    - TODO
+
+inject:
+  containerRoot: TODO
+  artifacts:
+    - name: device-nodes
+      kind: device-nodes
+      hostPaths:
+        - TODO
+      containerPath: /dev
+      mode: bind
+    - name: driver-libraries
+      kind: shared-libraries
+      hostPaths:
+        - TODO
+      containerPath: TODO
+      mode: so-only
+      excludeDirs: []
+    - name: driver-binaries
+      kind: directory
+      hostPaths:
+        - TODO
+      containerPath: TODO
+      mode: bind
+  linker:
+    strategy: ldconfig
+    configPath: /etc/ld.so.conf.d/accelerator-toolkit.conf
+    paths:
+      - TODO
+    runLdconfig: true
+  extraEnv: {}

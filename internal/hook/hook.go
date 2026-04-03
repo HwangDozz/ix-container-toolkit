@@ -1,14 +1,13 @@
-// Package hook implements the OCI prestart hook that injects Iluvatar GPU
-// devices and driver libraries into a container.
+// Package hook implements the OCI prestart hook that injects accelerator
+// devices and driver artifacts into a container.
 //
 // The hook is called by the OCI runtime (e.g. runc) right before the container
 // process starts, with stdin containing the OCI container state JSON. It:
 //
 //  1. Reads the container state to find the container bundle/rootfs.
-//  2. Inspects the container spec to determine which GPUs to expose via the
-//     ILUVATAR_COREX_VISIBLE_DEVICES environment variable.
-//  3. Discovers /dev/iluvatar* device nodes on the host that correspond to the
-//     requested GPUs.
+//  2. Inspects the container spec to determine which accelerator devices to expose via the
+//     configured device selector environment variable.
+//  3. Discovers matching device nodes on the host for the requested selectors.
 //  4. Bind-mounts the device nodes and driver shared libraries into the container.
 //  5. Injects an ld.so.conf.d snippet so that the dynamic linker inside the
 //     container finds the mounted driver libraries.
@@ -25,23 +24,24 @@ import (
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 
-	"github.com/ix-toolkit/ix-toolkit/pkg/config"
-	"github.com/ix-toolkit/ix-toolkit/pkg/device"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/device"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/runtimeview"
 )
 
 // Hook is the main hook executor.
 type Hook struct {
-	cfg *config.Config
-	log *logrus.Logger
+	view *runtimeview.View
+	log  *logrus.Logger
 }
 
-// New creates a Hook using the provided configuration and logger.
-func New(cfg *config.Config, log *logrus.Logger) *Hook {
-	return &Hook{cfg: cfg, log: log}
+// New creates a Hook using the provided runtime view and logger.
+func New(view *runtimeview.View, log *logrus.Logger) *Hook {
+	return &Hook{view: view, log: log}
 }
 
 // Run executes the OCI prestart hook. It reads the OCI container state from r
-// and injects GPU devices and driver libraries into the container rootfs.
+// and injects accelerator devices and driver libraries into the container rootfs.
 func (h *Hook) Run(r io.Reader) error {
 	// 1. Parse the OCI container state from stdin.
 	state, err := readContainerState(r)
@@ -56,15 +56,15 @@ func (h *Hook) Run(r io.Reader) error {
 		return fmt.Errorf("loading OCI spec: %w", err)
 	}
 
-	// 3. Determine which GPUs the container requested.
+	// 3. Determine which accelerator devices the container requested.
 	visibleDevices := h.visibleDevices(spec)
-	if visibleDevices == "" && !h.cfg.Hook.DisableRequire {
+	if visibleDevices == "" && !h.view.DisableRequire() {
 		// Container did not request any GPU — nothing to do.
-		h.log.Debug("no GPU requested (ILUVATAR_COREX_VISIBLE_DEVICES not set), skipping")
+		h.log.WithField("selectorEnvVars", h.view.SelectorEnvVars()).Debug("no accelerator requested, skipping injection")
 		return nil
 	}
 	if strings.EqualFold(strings.TrimSpace(visibleDevices), "none") {
-		h.log.Debug("ILUVATAR_COREX_VISIBLE_DEVICES=none, skipping GPU injection")
+		h.log.WithField("selectorEnvVars", h.view.SelectorEnvVars()).Debug("selector explicitly disabled device injection")
 		return nil
 	}
 
@@ -75,185 +75,56 @@ func (h *Hook) Run(r io.Reader) error {
 	h.log.WithFields(logrus.Fields{
 		"rootfs":         rootfs,
 		"visibleDevices": visibleDevices,
-	}).Info("injecting Iluvatar GPU into container")
+	}).Info("injecting accelerator artifacts into container")
 
 	// 4. Discover matching device nodes on the host.
-	devs, err := device.Discover(visibleDevices, h.log)
+	devs, err := device.DiscoverWithProfile(visibleDevices, h.view.Profile(), h.log)
 	if err != nil {
 		return fmt.Errorf("discovering devices: %w", err)
 	}
 	if len(devs) == 0 {
-		if h.cfg.Hook.DisableRequire {
-			h.log.Warn("no Iluvatar devices found, continuing because disableRequire=true")
+		if h.view.DisableRequire() {
+			h.log.Warn("no matching accelerator devices found, continuing because disableRequire=true")
 			return nil
 		}
-		return fmt.Errorf("no Iluvatar devices found for ILUVATAR_COREX_VISIBLE_DEVICES=%q", visibleDevices)
+		return fmt.Errorf("no matching accelerator devices found for selector value %q", visibleDevices)
 	}
 
-	// 5. Resolve symlinks in driver paths (e.g. /usr/local/corex → /usr/local/corex-4.3.0).
-	h.resolveDriverPaths()
-
-	// 6. Inject devices and driver libraries.
-	if err := h.injectDevices(rootfs, devs); err != nil {
-		return fmt.Errorf("injecting devices: %w", err)
-	}
-
-	if err := h.injectDriverLibraries(rootfs); err != nil {
-		return fmt.Errorf("injecting driver libraries: %w", err)
-	}
-
-	if err := h.injectDriverBinaries(rootfs); err != nil {
-		return fmt.Errorf("injecting driver binaries: %w", err)
+	// 5. Inject profile artifacts.
+	if err := h.injectArtifacts(rootfs, devs); err != nil {
+		return fmt.Errorf("injecting profile artifacts: %w", err)
 	}
 
 	return nil
 }
 
-// visibleDevices returns the value of the ILUVATAR_COREX_VISIBLE_DEVICES (or
-// configured equivalent) environment variable in the container spec.
+// visibleDevices returns the value of the configured selector environment
+// variable in the container spec.
 func (h *Hook) visibleDevices(spec *specs.Spec) string {
 	if spec.Process == nil {
 		return ""
 	}
-	prefix := h.cfg.Hook.DeviceListEnvvar + "="
-	for _, env := range spec.Process.Env {
-		if strings.HasPrefix(env, prefix) {
-			return strings.TrimPrefix(env, prefix)
+	for _, selectorEnv := range h.view.SelectorEnvVars() {
+		prefix := selectorEnv + "="
+		for _, env := range spec.Process.Env {
+			if strings.HasPrefix(env, prefix) {
+				return strings.TrimPrefix(env, prefix)
+			}
 		}
 	}
 	return ""
 }
 
-// resolveDriverPaths resolves symlinks in the configured driver paths.
-// For example, if ContainerDriverRoot is /usr/local/corex but the real path on
-// the host is /usr/local/corex-4.3.0 (symlinked), the library/binary paths
-// are updated to point to the real paths so that bind-mounts work correctly.
-func (h *Hook) resolveDriverPaths() {
-	// Resolve ContainerDriverRoot (used for relative path computation).
-	origRoot := h.cfg.Hook.ContainerDriverRoot
-	resolvedRoot, err := filepath.EvalSymlinks(origRoot)
-	if err == nil && resolvedRoot != origRoot {
-		h.log.WithFields(logrus.Fields{
-			"original": origRoot,
-			"resolved": resolvedRoot,
-		}).Info("resolved symlink for driver root")
-		// Keep ContainerDriverRoot as the container-side mount target (the
-		// non-versioned path), but resolve library/binary host paths.
-	}
-
-	// Resolve each library path.
-	for i, p := range h.cfg.Hook.DriverLibraryPaths {
-		resolved, err := filepath.EvalSymlinks(p)
-		if err == nil && resolved != p {
-			h.log.WithFields(logrus.Fields{
-				"original": p,
-				"resolved": resolved,
-			}).Debug("resolved symlink for driver library path")
-			h.cfg.Hook.DriverLibraryPaths[i] = resolved
-		}
-	}
-
-	// Resolve each binary path.
-	for i, p := range h.cfg.Hook.DriverBinaryPaths {
-		resolved, err := filepath.EvalSymlinks(p)
-		if err == nil && resolved != p {
-			h.log.WithFields(logrus.Fields{
-				"original": p,
-				"resolved": resolved,
-			}).Debug("resolved symlink for driver binary path")
-			h.cfg.Hook.DriverBinaryPaths[i] = resolved
-		}
-	}
-
-	h.cfg.Hook.DriverLibraryPaths = uniquePreserveOrder(h.cfg.Hook.DriverLibraryPaths)
-	h.cfg.Hook.DriverBinaryPaths = uniquePreserveOrder(h.cfg.Hook.DriverBinaryPaths)
-}
-
-// injectDevices bind-mounts Iluvatar device nodes into the container.
-func (h *Hook) injectDevices(rootfs string, devs []device.Device) error {
-	for _, dev := range devs {
-		target := filepath.Join(rootfs, dev.Path)
-		if err := ensureFile(target); err != nil {
-			return fmt.Errorf("creating device placeholder %s: %w", target, err)
-		}
-		if err := bindMount(dev.Path, target); err != nil {
-			return fmt.Errorf("bind-mounting device %s: %w", dev.Path, err)
-		}
-		h.log.WithField("device", dev.Path).Debug("device injected")
-	}
-	return nil
-}
-
-// injectDriverLibraries bind-mounts host driver libraries into the container
-// and registers them with the dynamic linker.
-//
-// When LibraryFilterMode is "so-only" (default), individual .so files are
-// mounted instead of the whole directory, avoiding the ~12GB Python packages
-// and other SDK components under lib64/python3/, cmake/, etc.
-// When LibraryFilterMode is "directory", the entire directory is mounted
-// (legacy behavior).
-func (h *Hook) injectDriverLibraries(rootfs string) error {
-	containerRoot := h.cfg.Hook.ContainerDriverRoot
-
-	for _, hostPath := range h.cfg.Hook.DriverLibraryPaths {
-		if _, err := os.Stat(hostPath); os.IsNotExist(err) {
-			h.log.WithField("path", hostPath).Debug("driver library path not found on host, skipping")
-			continue
-		}
-
-		// Compute the container-side target directory.
-		rel, err := filepath.Rel(containerRoot, hostPath)
-		if err != nil || strings.HasPrefix(rel, "..") {
-			rel = filepath.Base(hostPath)
-		}
-		targetDir := filepath.Join(rootfs, containerRoot, rel)
-
-		if h.cfg.Hook.LibraryFilterMode == "directory" {
-			// Legacy: mount the entire directory.
-			if err := os.MkdirAll(targetDir, 0755); err != nil {
-				return fmt.Errorf("creating lib dir %s: %w", targetDir, err)
-			}
-			if err := bindMount(hostPath, targetDir); err != nil {
-				return fmt.Errorf("bind-mounting lib dir %s: %w", hostPath, err)
-			}
-			h.log.WithField("path", hostPath).Debug("driver library dir injected (directory mode)")
-		} else {
-			// so-only: mount individual .so files, skip excluded subdirectories.
-			if err := h.mountSharedLibraries(hostPath, targetDir); err != nil {
-				return fmt.Errorf("mounting shared libraries from %s: %w", hostPath, err)
-			}
-		}
-	}
-
-	// Add an ld.so.conf.d entry so that the dynamic linker inside the container
-	// discovers the freshly mounted libraries.
-	if err := h.ensureLibrarySymlink(rootfs, containerRoot); err != nil {
-		h.log.WithError(err).Warn("failed to create library symlink (non-fatal)")
-	}
-
-	if err := h.injectLdSoConf(rootfs, containerRoot); err != nil {
-		h.log.WithError(err).Warn("failed to inject ld.so.conf.d entry (non-fatal)")
-	}
-
-	// Regenerate ld.so.cache inside the container so that applications that
-	// rely on it (rather than ld.so.conf.d directly) can find the libraries.
-	if err := runLdconfig(rootfs); err != nil {
-		h.log.WithError(err).Warn("ldconfig in container rootfs failed (non-fatal)")
-	}
-
-	return nil
-}
-
 // mountSharedLibraries walks hostDir (non-recursively) and bind-mounts only
 // shared library files (.so, .so.1, .so.1.2.3, etc.) into targetDir, skipping
-// subdirectories listed in LibraryExcludeDirs.
-func (h *Hook) mountSharedLibraries(hostDir, targetDir string) error {
+// subdirectories listed in excludeDirs.
+func (h *Hook) mountSharedLibraries(hostDir, targetDir string, excludeDirs []string) error {
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("creating target dir %s: %w", targetDir, err)
 	}
 
 	excludeSet := make(map[string]bool)
-	for _, d := range h.cfg.Hook.LibraryExcludeDirs {
+	for _, d := range excludeDirs {
 		excludeSet[d] = true
 	}
 
@@ -336,26 +207,191 @@ func isSharedLibrary(name string) bool {
 	return false
 }
 
-// injectDriverBinaries bind-mounts host driver binary directories into the container.
-func (h *Hook) injectDriverBinaries(rootfs string) error {
-	containerRoot := h.cfg.Hook.ContainerDriverRoot
+func (h *Hook) injectArtifacts(rootfs string, devs []device.Device) error {
+	for _, artifact := range h.view.Artifacts() {
+		switch artifact.Kind {
+		case "device-nodes":
+			if err := h.injectDeviceArtifact(rootfs, devs, artifact); err != nil {
+				return fmt.Errorf("artifact %s: %w", artifact.Name, err)
+			}
+		case "shared-libraries":
+			if err := h.injectLibraryArtifact(rootfs, artifact); err != nil {
+				return fmt.Errorf("artifact %s: %w", artifact.Name, err)
+			}
+		case "directory":
+			if err := h.injectDirectoryArtifact(rootfs, artifact); err != nil {
+				return fmt.Errorf("artifact %s: %w", artifact.Name, err)
+			}
+		default:
+			return fmt.Errorf("unsupported artifact kind %q", artifact.Kind)
+		}
+	}
 
-	for _, hostPath := range h.cfg.Hook.DriverBinaryPaths {
-		if _, err := os.Stat(hostPath); os.IsNotExist(err) {
-			h.log.WithField("path", hostPath).Debug("driver binary path not found on host, skipping")
-			continue
-		}
-
-		target := filepath.Join(rootfs, containerRoot, "bin")
-		if err := os.MkdirAll(target, 0755); err != nil {
-			return fmt.Errorf("creating bin dir %s: %w", target, err)
-		}
-		if err := h.mountDriverBinaries(hostPath, target); err != nil {
-			return fmt.Errorf("mounting driver binaries from %s: %w", hostPath, err)
-		}
-		h.log.WithField("path", hostPath).Debug("driver binary dir injected")
+	if err := h.injectProfileLinker(rootfs); err != nil {
+		h.log.WithError(err).Warn("profile linker injection failed (non-fatal)")
 	}
 	return nil
+}
+
+func (h *Hook) injectDeviceArtifact(rootfs string, devs []device.Device, artifact profile.Artifact) error {
+	mounted := make(map[string]bool)
+	for _, dev := range devs {
+		if err := mountDevicePath(rootfs, dev.Path); err != nil {
+			return err
+		}
+		mounted[dev.Path] = true
+	}
+
+	for _, controlPath := range h.controlDevicePaths() {
+		if mounted[controlPath] {
+			continue
+		}
+		if err := mountDevicePath(rootfs, controlPath); err != nil {
+			return err
+		}
+		mounted[controlPath] = true
+	}
+	return nil
+}
+
+func mountDevicePath(rootfs, hostPath string) error {
+	target := filepath.Join(rootfs, hostPath)
+	if err := ensureFile(target); err != nil {
+		return fmt.Errorf("creating device placeholder %s: %w", target, err)
+	}
+	if err := bindMount(hostPath, target); err != nil {
+		return fmt.Errorf("bind-mounting device %s: %w", hostPath, err)
+	}
+	return nil
+}
+
+func (h *Hook) controlDevicePaths() []string {
+	seen := make(map[string]bool)
+	var resolved []string
+	for _, pattern := range h.view.Profile().Device.ControlDeviceGlobs {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			h.log.WithError(err).WithField("pattern", pattern).Warn("invalid control device glob, skipping")
+			continue
+		}
+		for _, match := range matches {
+			if seen[match] {
+				continue
+			}
+			seen[match] = true
+			resolved = append(resolved, match)
+		}
+	}
+	return resolved
+}
+
+func (h *Hook) injectLibraryArtifact(rootfs string, artifact profile.Artifact) error {
+	for _, hostPath := range uniquePreserveOrder(resolveExistingPaths(artifact.HostPaths)) {
+		if _, err := os.Stat(hostPath); os.IsNotExist(err) {
+			if artifact.Optional {
+				h.log.WithField("path", hostPath).Debug("optional library path not found on host, skipping")
+				continue
+			}
+			return fmt.Errorf("library path %s not found on host", hostPath)
+		}
+
+		targetDir := artifactTargetDir(rootfs, h.view.ContainerRoot(), artifact.ContainerPath, hostPath)
+		switch artifact.Mode {
+		case "bind":
+			if err := os.MkdirAll(targetDir, 0755); err != nil {
+				return fmt.Errorf("creating lib dir %s: %w", targetDir, err)
+			}
+			if err := bindMount(hostPath, targetDir); err != nil {
+				return fmt.Errorf("bind-mounting lib dir %s: %w", hostPath, err)
+			}
+		case "so-only":
+			if err := h.mountSharedLibraries(hostPath, targetDir, artifact.ExcludeDirs); err != nil {
+				return fmt.Errorf("mounting shared libraries from %s: %w", hostPath, err)
+			}
+		default:
+			return fmt.Errorf("unsupported library artifact mode %q", artifact.Mode)
+		}
+	}
+	return nil
+}
+
+func (h *Hook) injectDirectoryArtifact(rootfs string, artifact profile.Artifact) error {
+	for _, hostPath := range uniquePreserveOrder(resolveExistingPaths(artifact.HostPaths)) {
+		if _, err := os.Stat(hostPath); os.IsNotExist(err) {
+			if artifact.Optional {
+				h.log.WithField("path", hostPath).Debug("optional directory path not found on host, skipping")
+				continue
+			}
+			return fmt.Errorf("directory path %s not found on host", hostPath)
+		}
+
+		target := artifactTargetDir(rootfs, h.view.ContainerRoot(), artifact.ContainerPath, hostPath)
+		if err := os.MkdirAll(target, 0755); err != nil {
+			return fmt.Errorf("creating dir %s: %w", target, err)
+		}
+
+		switch artifact.Mode {
+		case "bind":
+			if err := h.mountDriverBinaries(hostPath, target); err != nil {
+				return fmt.Errorf("mounting directory artifact from %s: %w", hostPath, err)
+			}
+		case "copy":
+			if err := copyDir(hostPath, target); err != nil {
+				return fmt.Errorf("copying directory artifact from %s: %w", hostPath, err)
+			}
+		default:
+			return fmt.Errorf("unsupported directory artifact mode %q", artifact.Mode)
+		}
+	}
+	return nil
+}
+
+func (h *Hook) injectProfileLinker(rootfs string) error {
+	linker := h.view.Linker()
+	if linker.ConfigPath == "" {
+		return nil
+	}
+
+	confFile := filepath.Join(rootfs, linker.ConfigPath)
+	if err := os.MkdirAll(filepath.Dir(confFile), 0755); err != nil {
+		return err
+	}
+
+	content := strings.Join(linker.Paths, "\n") + "\n"
+	if err := os.WriteFile(confFile, []byte(content), 0644); err != nil {
+		return err
+	}
+
+	if err := h.ensureLibrarySymlink(rootfs, h.view.ContainerRoot()); err != nil {
+		h.log.WithError(err).Warn("failed to create library symlink (non-fatal)")
+	}
+
+	if linker.RunLdconfig {
+		if err := runLdconfig(rootfs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func artifactTargetDir(rootfs, containerRoot, containerPath, hostPath string) string {
+	rel, err := filepath.Rel(containerRoot, hostPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		rel = filepath.Base(hostPath)
+	}
+	return filepath.Join(rootfs, containerPath, rel)
+}
+
+func resolveExistingPaths(paths []string) []string {
+	resolved := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			resolved = append(resolved, real)
+			continue
+		}
+		resolved = append(resolved, p)
+	}
+	return resolved
 }
 
 func (h *Hook) ensureLibrarySymlink(rootfs, containerRoot string) error {
@@ -467,28 +503,6 @@ func copyDir(srcDir, dstDir string) error {
 	}
 
 	return nil
-}
-
-// injectLdSoConf writes a .conf file into /etc/ld.so.conf.d inside the
-// container so that the dynamic linker picks up the driver libraries.
-func (h *Hook) injectLdSoConf(rootfs, containerDriverRoot string) error {
-	confDir := filepath.Join(rootfs, "etc", "ld.so.conf.d")
-	if err := os.MkdirAll(confDir, 0755); err != nil {
-		return err
-	}
-
-	var lines []string
-	for _, p := range h.cfg.Hook.DriverLibraryPaths {
-		rel, err := filepath.Rel(h.cfg.Hook.ContainerDriverRoot, p)
-		if err != nil || strings.HasPrefix(rel, "..") {
-			rel = filepath.Base(p)
-		}
-		lines = append(lines, filepath.Join(containerDriverRoot, rel))
-	}
-
-	content := strings.Join(lines, "\n") + "\n"
-	confFile := filepath.Join(confDir, "ix-toolkit.conf")
-	return os.WriteFile(confFile, []byte(content), 0644)
 }
 
 // ociState is the minimal subset of the OCI container state passed to hooks on stdin.

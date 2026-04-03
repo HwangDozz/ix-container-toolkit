@@ -1,11 +1,17 @@
 # Runtime-only image build.
-# Expects prebuilt Linux/amd64 binaries in ./bin and does not run `go build`
+# Expects prebuilt binaries under ./bin/<os>-<arch>/ and does not run `go build`
 # or `go mod download` inside Docker.
 
 FROM debian:bookworm-slim AS installer
 
-COPY bin/ix-container-runtime /usr/local/bin/ix-container-runtime
-COPY bin/ix-container-hook /usr/local/bin/ix-container-hook
-COPY bin/ix-installer /usr/local/bin/ix-installer
+ARG TARGETOS=linux
+ARG TARGETARCH
 
-ENTRYPOINT ["/usr/local/bin/ix-installer"]
+COPY bin/ /tmp/bin/
+COPY profiles /profiles
+RUN test -n "$TARGETARCH" && \
+    install -m 0755 /tmp/bin/${TARGETOS}-${TARGETARCH}/accelerator-container-runtime /usr/local/bin/accelerator-container-runtime && \
+    install -m 0755 /tmp/bin/${TARGETOS}-${TARGETARCH}/accelerator-container-hook /usr/local/bin/accelerator-container-hook && \
+    install -m 0755 /tmp/bin/${TARGETOS}-${TARGETARCH}/accelerator-installer /usr/local/bin/accelerator-installer
+
+ENTRYPOINT ["/usr/local/bin/accelerator-installer"]

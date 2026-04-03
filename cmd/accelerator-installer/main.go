@@ -1,16 +1,15 @@
-// installer installs ix-toolkit binaries and configures the container runtime
+// installer installs accelerator-toolkit binaries and configures the container runtime
 // on a Kubernetes node. It is designed to run as an init container in a
 // privileged DaemonSet with hostPath mounts.
 //
 // What it does:
-//  1. Copies ix-container-runtime and ix-container-hook to the host at
+//  1. Copies accelerator-container-runtime and accelerator-container-hook to the host at
 //     /usr/local/bin/ (configurable via environment variables).
-//  2. Writes the ix-toolkit config to /etc/ix-toolkit/config.json.
-//  3. Patches the containerd config to register ix-container-runtime as a
-//     runtime class.
-//  4. Labels the current node with iluvatar.ai/gpu=present via the Kubernetes
-//     API (using the in-cluster ServiceAccount token) so that the DaemonSet
-//     nodeSelector can match it.
+//  2. Writes the accelerator-toolkit config to /etc/accelerator-toolkit/config.json.
+//  3. Patches the containerd config to register accelerator-container-runtime under the
+//     runtime handler declared by the active profile.
+//  4. Labels the current node with the labels declared by the active profile
+//     via the Kubernetes API so that the DaemonSet nodeSelector can match it.
 //  5. (Optional) Restarts containerd via systemd dbus if RESTART_CONTAINERD=true.
 package main
 
@@ -29,32 +28,55 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/ix-toolkit/ix-toolkit/pkg/config"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/config"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/runtimeview"
 )
 
 const (
 	defaultHostBinDir    = "/usr/local/bin"
-	defaultHostConfigDir = "/etc/ix-toolkit"
+	defaultHostConfigDir = "/etc/accelerator-toolkit"
 	containerdConfigPath = "/etc/containerd/config.toml"
 )
 
-var log = logrus.New()
+var (
+	log                     = logrus.New()
+	installerBinarySource   = "/usr/local/bin"
+	serviceAccountToken     = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	serviceAccountCA        = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	newKubernetesHTTPClient = func(caPool *x509.CertPool) *http.Client {
+		return &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{RootCAs: caPool},
+			},
+		}
+	}
+)
 
 func main() {
 	log.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
-	log.Info("ix-toolkit installer starting")
+	log.Info("accelerator-toolkit installer starting")
 
 	hostBinDir := envOr("HOST_BIN_DIR", defaultHostBinDir)
 	hostConfigDir := envOr("HOST_CONFIG_DIR", defaultHostConfigDir)
+	profilePath := config.ResolveProfilePath(os.Getenv("ACCELERATOR_PROFILE_FILE"))
+
+	view, err := runtimeview.Load("", profilePath)
+	if err != nil {
+		log.WithError(err).Fatal("failed to load runtime view")
+	}
+	log.WithFields(logrus.Fields{
+		"profile": view.Profile().Metadata.Name,
+		"path":    profilePath,
+	}).Info("loaded active profile")
 
 	steps := []struct {
 		name string
 		fn   func() error
 	}{
 		{"copy binaries", func() error { return copyBinaries(hostBinDir) }},
-		{"write config", func() error { return writeConfig(hostConfigDir, hostBinDir) }},
-		{"patch containerd", func() error { return patchContainerd(hostBinDir) }},
-		{"label node", labelNode},
+		{"write config", func() error { return writeConfig(hostConfigDir, hostBinDir, view, profilePath) }},
+		{"patch containerd", func() error { return patchContainerd(hostBinDir, view) }},
+		{"label node", func() error { return labelNode(view) }},
 		{"restart containerd", restartContainerd},
 	}
 
@@ -65,7 +87,7 @@ func main() {
 		}
 	}
 
-	log.Info("ix-toolkit installation complete")
+	log.Info("accelerator-toolkit installation complete")
 }
 
 // copyBinaries copies the hook and runtime binaries from the installer image
@@ -74,10 +96,10 @@ func copyBinaries(hostBinDir string) error {
 	// When running as a DaemonSet, the host rootfs is typically mounted at /host.
 	hostMount := envOr("HOST_MOUNT", "/host")
 
-	binaries := []string{"ix-container-runtime", "ix-container-hook"}
+	binaries := []string{"accelerator-container-runtime", "accelerator-container-hook"}
 	for _, bin := range binaries {
 		// The installer image ships the binaries at /usr/local/bin/<name>.
-		src := filepath.Join("/usr/local/bin", bin)
+		src := filepath.Join(installerBinarySource, bin)
 		dst := filepath.Join(hostMount, hostBinDir, bin)
 
 		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
@@ -91,25 +113,18 @@ func copyBinaries(hostBinDir string) error {
 	return nil
 }
 
-// writeConfig writes the ix-toolkit config.json to the host.
-func writeConfig(hostConfigDir, hostBinDir string) error {
+// writeConfig writes the accelerator-toolkit config.json to the host.
+func writeConfig(hostConfigDir, hostBinDir string, view *runtimeview.View, profilePath string) error {
 	hostMount := envOr("HOST_MOUNT", "/host")
 
-	cfg := config.Defaults()
-	cfg.HookPath = filepath.Join(hostBinDir, "ix-container-hook")
+	cfg := *view.Config()
+	cfg.HookPath = filepath.Join(hostBinDir, "accelerator-container-hook")
 
-	// Allow overrides from environment.
-	if v := os.Getenv("IX_DRIVER_LIB_PATHS"); v != "" {
-		cfg.Hook.DriverLibraryPaths = strings.Split(v, ":")
-	}
-	if v := os.Getenv("IX_DRIVER_BIN_PATHS"); v != "" {
-		cfg.Hook.DriverBinaryPaths = strings.Split(v, ":")
-	}
-	if v := os.Getenv("IX_LOG_LEVEL"); v != "" {
+	if v := os.Getenv("ACCELERATOR_LOG_LEVEL"); v != "" {
 		cfg.LogLevel = v
 	}
 
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := json.MarshalIndent(&cfg, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -124,13 +139,24 @@ func writeConfig(hostConfigDir, hostBinDir string) error {
 		return fmt.Errorf("writing %s: %w", cfgPath, err)
 	}
 	log.WithField("path", cfgPath).Info("config written")
+
+	profileDir := filepath.Join(dir, "profiles")
+	if err := os.MkdirAll(profileDir, 0755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", profileDir, err)
+	}
+	hostProfilePath := filepath.Join(profileDir, "active.yaml")
+	if err := copyFile(profilePath, hostProfilePath, 0644); err != nil {
+		return fmt.Errorf("copying profile to host: %w", err)
+	}
+	log.WithField("path", hostProfilePath).Info("profile copied to host")
+
 	return nil
 }
 
-// patchContainerd adds the ix runtime class to containerd's config.toml.
+// patchContainerd adds the profile-declared accelerator runtime to containerd's config.toml.
 // It appends a [plugins."io.containerd.grpc.v1.cri"…] stanza if one doesn't
 // already exist, so the operation is idempotent.
-func patchContainerd(hostBinDir string) error {
+func patchContainerd(hostBinDir string, view *runtimeview.View) error {
 	hostMount := envOr("HOST_MOUNT", "/host")
 	cfgPath := filepath.Join(hostMount, containerdConfigPath)
 
@@ -144,22 +170,23 @@ func patchContainerd(hostBinDir string) error {
 	}
 
 	content := string(data)
-	runtimeBin := filepath.Join(hostBinDir, "ix-container-runtime")
-	marker := `[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.ix]`
+	runtimeBin := filepath.Join(hostBinDir, "accelerator-container-runtime")
+	handlerName := view.HandlerName()
+	marker := fmt.Sprintf(`[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.%s]`, handlerName)
 
 	if strings.Contains(content, marker) {
-		log.Info("containerd already configured for ix runtime, skipping")
+		log.Info("containerd already configured for this accelerator runtime, skipping")
 		return nil
 	}
 
 	stanza := fmt.Sprintf(`
-# --- ix-toolkit: Iluvatar GPU runtime (auto-generated) ---
+# --- accelerator-toolkit: runtime (auto-generated) ---
 %s
   runtime_type = "io.containerd.runc.v2"
-  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.ix.options]
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.%s.options]
     BinaryName = "%s"
-# --- end ix-toolkit ---
-`, marker, runtimeBin)
+# --- end accelerator-toolkit ---
+`, marker, handlerName, runtimeBin)
 
 	patched := content + stanza
 	if err := os.WriteFile(cfgPath, []byte(patched), 0644); err != nil {
@@ -212,35 +239,29 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	return out.Sync()
 }
 
-// labelNode patches the current Kubernetes node with the label
-// iluvatar.ai/gpu=present using the in-cluster ServiceAccount token.
+// labelNode patches the current Kubernetes node with the labels declared by
+// the active runtime view using the in-cluster ServiceAccount token.
 // The node name is read from the NODE_NAME environment variable, which should
 // be injected by the DaemonSet via the Downward API.
 //
 // If the Kubernetes API is unreachable or NODE_NAME is unset, a warning is
 // logged and the step is skipped (non-fatal) so the rest of the installation
 // can proceed.
-func labelNode() error {
+func labelNode(view *runtimeview.View) error {
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {
 		log.Warn("NODE_NAME not set, skipping node labeling (add it via Downward API in the DaemonSet)")
 		return nil
 	}
 
-	// In-cluster credentials written by Kubernetes into every Pod.
-	const (
-		tokenFile = "/var/run/secrets/kubernetes.io/serviceaccount/token"
-		caFile    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-	)
-
-	token, err := os.ReadFile(tokenFile)
+	token, err := os.ReadFile(serviceAccountToken)
 	if err != nil {
 		log.WithError(err).Warn("cannot read ServiceAccount token, skipping node labeling")
 		return nil
 	}
 
 	caPool := x509.NewCertPool()
-	if caData, err := os.ReadFile(caFile); err == nil {
+	if caData, err := os.ReadFile(serviceAccountCA); err == nil {
 		caPool.AppendCertsFromPEM(caData)
 	}
 
@@ -253,12 +274,12 @@ func labelNode() error {
 		apiPort = "443"
 	}
 
-	// JSON Merge Patch: add label iluvatar.ai/gpu=present.
+	labels := view.NodeLabels()
+
+	// JSON Merge Patch: add node labels declared by the profile.
 	patch := map[string]interface{}{
 		"metadata": map[string]interface{}{
-			"labels": map[string]string{
-				"iluvatar.ai/gpu": "present",
-			},
+			"labels": labels,
 		},
 	}
 	body, err := json.Marshal(patch)
@@ -274,11 +295,7 @@ func labelNode() error {
 	req.Header.Set("Content-Type", "application/merge-patch+json")
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
 
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{RootCAs: caPool},
-		},
-	}
+	client := newKubernetesHTTPClient(caPool)
 	resp, err := client.Do(req)
 	if err != nil {
 		log.WithError(err).Warn("PATCH node labels failed, skipping (non-fatal)")
@@ -295,7 +312,10 @@ func labelNode() error {
 		return nil
 	}
 
-	log.WithField("node", nodeName).Info("node labeled with iluvatar.ai/gpu=present")
+	log.WithFields(logrus.Fields{
+		"node":   nodeName,
+		"labels": labels,
+	}).Info("node labeled")
 	return nil
 }
 

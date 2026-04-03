@@ -1,70 +1,106 @@
-IMAGE_REGISTRY ?= docker.io/ix-toolkit
+IMAGE_REGISTRY ?= docker.io/accelerator-toolkit
 IMAGE_TAG      ?= latest
 IMAGE          := $(IMAGE_REGISTRY)/installer:$(IMAGE_TAG)
+PROFILE        ?= profiles/iluvatar-bi-v150.yaml
+MULTIARCH_PLATFORMS ?= linux/amd64,linux/arm64
+DOCKER_BUILD_ARGS ?=
 
-GOOS   ?= linux
-GOARCH ?= amd64
+GOOS   ?= $(shell go env GOOS)
+GOARCH ?= $(shell go env GOARCH)
 LDFLAGS := -s -w
+BINARY_PLATFORM_DIR := bin/$(GOOS)-$(GOARCH)
 
-.PHONY: all build test docker-build docker-push docker-build-prebuilt docker-push-prebuilt deploy undeploy clean
+.PHONY: all build test docker-build docker-push docker-build-prebuilt docker-push-prebuilt docker-build-multiarch docker-push-multiarch docker-build-prebuilt-multiarch docker-push-prebuilt-multiarch deploy undeploy clean render-runtimeclass render-daemonset render-bundle
 
 all: build
 
-## Build all binaries for Linux
+## Build all binaries for the current GOOS/GOARCH and mirror them into bin/<os>-<arch>/
 build:
+	mkdir -p bin $(BINARY_PLATFORM_DIR)
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 	  go build -trimpath -ldflags="$(LDFLAGS)" \
-	  -o bin/ix-container-runtime ./cmd/ix-container-runtime
+	  -o $(BINARY_PLATFORM_DIR)/accelerator-container-runtime ./cmd/accelerator-container-runtime
+	cp $(BINARY_PLATFORM_DIR)/accelerator-container-runtime bin/accelerator-container-runtime
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 	  go build -trimpath -ldflags="$(LDFLAGS)" \
-	  -o bin/ix-container-hook ./cmd/ix-container-hook
+	  -o $(BINARY_PLATFORM_DIR)/accelerator-container-hook ./cmd/accelerator-container-hook
+	cp $(BINARY_PLATFORM_DIR)/accelerator-container-hook bin/accelerator-container-hook
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 	  go build -trimpath -ldflags="$(LDFLAGS)" \
-	  -o bin/ix-installer ./cmd/ix-installer
+	  -o $(BINARY_PLATFORM_DIR)/accelerator-installer ./cmd/accelerator-installer
+	cp $(BINARY_PLATFORM_DIR)/accelerator-installer bin/accelerator-installer
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
+	  go build -trimpath -ldflags="$(LDFLAGS)" \
+	  -o $(BINARY_PLATFORM_DIR)/accelerator-profile-render ./cmd/accelerator-profile-render
+	cp $(BINARY_PLATFORM_DIR)/accelerator-profile-render bin/accelerator-profile-render
 
 ## Run unit tests
 test:
 	go test ./...
 
+## Render RuntimeClass from a generic profile
+render-runtimeclass:
+	go run ./cmd/accelerator-profile-render runtimeclass --profile $(PROFILE)
+
+## Render installer DaemonSet from a generic profile
+render-daemonset:
+	go run ./cmd/accelerator-profile-render daemonset --profile $(PROFILE) --image $(IMAGE)
+
+## Render full deploy bundle from a generic profile
+render-bundle:
+	go run ./cmd/accelerator-profile-render bundle --profile $(PROFILE) --image $(IMAGE)
+
 ## Build the installer container image
 docker-build:
-	docker build -t $(IMAGE) .
+	docker build $(DOCKER_BUILD_ARGS) -t $(IMAGE) .
 
 ## Push the installer image to the registry
 docker-push: docker-build
 	docker push $(IMAGE)
 
-## Build the installer image from locally prebuilt binaries in ./bin
+## Build and push a multi-arch installer image manifest for mixed-arch clusters
+docker-build-multiarch:
+	docker buildx build $(DOCKER_BUILD_ARGS) --platform $(MULTIARCH_PLATFORMS) -t $(IMAGE) --push .
+
+docker-push-multiarch: docker-build-multiarch
+
+## Build the installer image from locally prebuilt binaries in ./bin/<os>-<arch>/
 docker-build-prebuilt:
-	test -x bin/ix-container-runtime
-	test -x bin/ix-container-hook
-	test -x bin/ix-installer
-	docker build -f Dockerfile.prebuilt -t $(IMAGE) .
+	test -x $(BINARY_PLATFORM_DIR)/accelerator-container-runtime
+	test -x $(BINARY_PLATFORM_DIR)/accelerator-container-hook
+	test -x $(BINARY_PLATFORM_DIR)/accelerator-installer
+	docker build \
+	  $(DOCKER_BUILD_ARGS) \
+	  --build-arg TARGETOS=$(GOOS) \
+	  --build-arg TARGETARCH=$(GOARCH) \
+	  -f Dockerfile.prebuilt -t $(IMAGE) .
 
 ## Push the prebuilt-binary installer image to the registry
 docker-push-prebuilt: docker-build-prebuilt
 	docker push $(IMAGE)
 
-## Deploy ix-toolkit to the current Kubernetes cluster.
+## Build and push a multi-arch installer image manifest from prebuilt binaries
+docker-build-prebuilt-multiarch:
+	docker buildx build $(DOCKER_BUILD_ARGS) --platform $(MULTIARCH_PLATFORMS) -f Dockerfile.prebuilt -t $(IMAGE) --push .
+
+docker-push-prebuilt-multiarch: docker-build-prebuilt-multiarch
+
+## Deploy accelerator-toolkit to the current Kubernetes cluster.
 ## Substitutes the IMAGE placeholder in daemonset.yaml at deploy time so you
 ## don't have to edit the YAML by hand:
-##   make deploy IMAGE_REGISTRY=myregistry.example.com/ix-toolkit IMAGE_TAG=v1.0
+##   make deploy IMAGE_REGISTRY=myregistry.example.com/accelerator-toolkit IMAGE_TAG=v1.0
 deploy:
-	kubectl apply -f deployments/rbac/rbac.yaml
-	kubectl apply -f deployments/runtimeclass/runtimeclass.yaml
-	sed 's|ix-toolkit/installer:latest|$(IMAGE)|g' deployments/daemonset/daemonset.yaml \
-	  | kubectl apply -f -
+	go run ./cmd/accelerator-profile-render bundle --profile $(PROFILE) --image $(IMAGE) | kubectl apply -f -
 
-## Remove ix-toolkit from the cluster
+## Remove accelerator-toolkit from the cluster
 undeploy:
-	kubectl delete -f deployments/daemonset/daemonset.yaml --ignore-not-found
-	kubectl delete -f deployments/runtimeclass/runtimeclass.yaml --ignore-not-found
-	kubectl delete -f deployments/rbac/rbac.yaml --ignore-not-found
+	go run ./cmd/accelerator-profile-render bundle --profile $(PROFILE) --image $(IMAGE) | kubectl delete -f - --ignore-not-found
 
 clean:
 	rm -rf bin/
 
 ## Install binaries to /usr/local/bin on the current host (for testing)
 install-local: build
-	install -m 755 bin/ix-container-runtime /usr/local/bin/
-	install -m 755 bin/ix-container-hook    /usr/local/bin/
+	install -m 755 bin/accelerator-container-runtime /usr/local/bin/
+	install -m 755 bin/accelerator-container-hook    /usr/local/bin/
+	install -m 755 bin/accelerator-profile-render    /usr/local/bin/

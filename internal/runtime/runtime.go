@@ -1,6 +1,7 @@
-// Package runtime implements ix-container-runtime, an OCI runtime shim that
+// Package runtime implements accelerator-container-runtime, an OCI runtime shim that
 // transparently wraps an underlying OCI runtime (e.g. runc) and injects the
-// ix-container-hook as a prestart hook for containers that request Iluvatar GPUs.
+// accelerator-container-hook as a prestart hook for containers that request accelerator
+// devices.
 //
 // The shim intercepts the "create" sub-command. For all other sub-commands
 // (start, delete, state, kill, …) it passes through to the underlying runtime
@@ -13,23 +14,24 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 
-	"github.com/ix-toolkit/ix-toolkit/pkg/config"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/runtimeview"
 )
 
 // Runtime is the OCI runtime shim.
 type Runtime struct {
-	cfg *config.Config
-	log *logrus.Logger
+	view *runtimeview.View
+	log  *logrus.Logger
 }
 
-// New creates a Runtime shim.
-func New(cfg *config.Config, log *logrus.Logger) *Runtime {
-	return &Runtime{cfg: cfg, log: log}
+// New creates a Runtime shim using the provided runtime view and logger.
+func New(view *runtimeview.View, log *logrus.Logger) *Runtime {
+	return &Runtime{view: view, log: log}
 }
 
 // Exec is the entry point: it receives os.Args (the full argv including argv[0])
@@ -62,13 +64,13 @@ func (r *Runtime) Exec(args []string) error {
 	if err := r.injectHook(bundlePath); err != nil {
 		// Non-fatal: log and proceed without the hook so we don't break
 		// containers that don't need GPU access.
-		r.log.WithError(err).Warn("failed to inject ix-container-hook, proceeding without GPU support")
+		r.log.WithError(err).Warn("failed to inject accelerator-container-hook, proceeding without GPU support")
 	}
 
 	return r.delegate(args)
 }
 
-// injectHook reads config.json from bundle, injects the ix-container-hook
+// injectHook reads config.json from bundle, injects the accelerator-container-hook
 // as a prestart hook if the container requests GPUs, then rewrites config.json.
 func (r *Runtime) injectHook(bundle string) error {
 	specPath := filepath.Join(bundle, "config.json")
@@ -88,7 +90,7 @@ func (r *Runtime) injectHook(bundle string) error {
 	}
 
 	hook := specs.Hook{
-		Path: r.cfg.HookPath,
+		Path: r.view.HookPath(),
 		// No args needed; the hook reads everything from stdin (OCI state).
 	}
 
@@ -98,6 +100,8 @@ func (r *Runtime) injectHook(bundle string) error {
 	// Prepend our hook so it runs before any user-defined prestart hooks.
 	spec.Hooks.Prestart = append([]specs.Hook{hook}, spec.Hooks.Prestart...) //nolint:staticcheck
 
+	r.injectExtraEnv(&spec)
+
 	modified, err := json.Marshal(&spec)
 	if err != nil {
 		return fmt.Errorf("marshalling modified spec: %w", err)
@@ -106,20 +110,55 @@ func (r *Runtime) injectHook(bundle string) error {
 		return fmt.Errorf("writing %s: %w", specPath, err)
 	}
 
-	r.log.WithField("hookPath", r.cfg.HookPath).Info("injected ix-container-hook as prestart hook")
+	r.log.WithField("hookPath", r.view.HookPath()).Info("injected accelerator-container-hook as prestart hook")
 	return nil
 }
 
+func (r *Runtime) injectExtraEnv(spec *specs.Spec) {
+	extraEnv := r.view.ExtraEnv()
+	if spec.Process == nil || len(extraEnv) == 0 {
+		return
+	}
+
+	existing := make(map[string]bool, len(spec.Process.Env))
+	for _, env := range spec.Process.Env {
+		if idx := strings.IndexByte(env, '='); idx > 0 {
+			existing[env[:idx]] = true
+		}
+	}
+
+	keys := make([]string, 0, len(extraEnv))
+	for key := range extraEnv {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	injected := 0
+	for _, key := range keys {
+		if existing[key] {
+			continue
+		}
+		spec.Process.Env = append(spec.Process.Env, key+"="+extraEnv[key])
+		injected++
+	}
+	if injected > 0 {
+		r.log.WithField("count", injected).Info("injected extra OCI env from profile")
+	}
+}
+
 // containerRequestsGPU returns true if the container spec contains any
-// Iluvatar GPU resources in its Linux devices or environment variables.
+// configured device selector environment variable.
 func (r *Runtime) containerRequestsGPU(spec *specs.Spec) bool {
 	if spec.Process == nil {
 		return false
 	}
-	envKey := r.cfg.Hook.DeviceListEnvvar + "="
-	for _, env := range spec.Process.Env {
-		if len(env) >= len(envKey) && env[:len(envKey)] == envKey {
-			return true
+
+	for _, selectorEnv := range r.view.SelectorEnvVars() {
+		envKey := selectorEnv + "="
+		for _, env := range spec.Process.Env {
+			if len(env) >= len(envKey) && env[:len(envKey)] == envKey {
+				return true
+			}
 		}
 	}
 	return false
@@ -127,9 +166,9 @@ func (r *Runtime) containerRequestsGPU(spec *specs.Spec) bool {
 
 // delegate exec-replaces the current process with the underlying OCI runtime.
 func (r *Runtime) delegate(args []string) error {
-	underlying, err := exec.LookPath(r.cfg.UnderlyingRuntime)
+	underlying, err := exec.LookPath(r.view.UnderlyingRuntime())
 	if err != nil {
-		return fmt.Errorf("looking up underlying runtime %q: %w", r.cfg.UnderlyingRuntime, err)
+		return fmt.Errorf("looking up underlying runtime %q: %w", r.view.UnderlyingRuntime(), err)
 	}
 
 	r.log.WithFields(logrus.Fields{

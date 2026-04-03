@@ -1,4 +1,4 @@
-# ix-toolkit — 项目概述与开发记录
+# accelerator-toolkit — 项目概述与开发记录
 
 > 更新日期：2026-04-02
 
@@ -17,13 +17,13 @@
 
 ## 项目信息
 
-- **模块名**：`github.com/ix-toolkit/ix-toolkit`
+- **模块名**：`github.com/accelerator-toolkit/accelerator-toolkit`
 - **语言**：Go 1.26.1+
 - **目标平台**：Linux/amd64
 - **主要组件**：
-  - `ix-container-hook`：OCI prestart hook
-  - `ix-container-runtime`：containerd runtime shim
-  - `ix-installer`：节点安装器
+  - `accelerator-container-hook`：OCI prestart hook
+  - `accelerator-container-runtime`：containerd runtime shim
+  - `accelerator-installer`：节点安装器
 
 ## 已验证的真实节点环境
 
@@ -55,14 +55,14 @@
 - Device Plugin **不会** 自动写入 `ld.so.conf.d`
 - Device Plugin **不会** 自动注入 OCI hook
 
-这意味着 ix-toolkit 需要解决两件事：
+这意味着 accelerator-toolkit 需要解决两件事：
 
 1. 把 UUID 解析成实际的 `/dev/iluvatarN`
 2. 把宿主机驱动库和工具挂进容器，并补齐动态链接器配置
 
 ## 当前架构
 
-### 1. `ix-container-hook`
+### 1. `accelerator-container-hook`
 
 OCI prestart hook，由 `runc` 在容器启动前调用。
 
@@ -77,10 +77,10 @@ OCI prestart hook，由 `runc` 在容器启动前调用。
 7. 若 `ixsmi` 不可用，降级为位置映射并输出 Warn
 8. 将设备节点 bind-mount 到容器 rootfs
 9. 将驱动库和工具 bind-mount 到容器内的 `/usr/local/corex/...`
-10. 写入 `/etc/ld.so.conf.d/ix-toolkit.conf`
+10. 写入 `/etc/ld.so.conf.d/accelerator-toolkit.conf`
 11. 在容器 rootfs 内运行 `ldconfig` 刷新 `ld.so.cache`
 
-### 2. `ix-container-runtime`
+### 2. `accelerator-container-runtime`
 
 作为 containerd 使用的 runtime shim，透明包装底层 `runc`。
 
@@ -89,18 +89,18 @@ OCI prestart hook，由 `runc` 在容器启动前调用。
 - 只在 `create` 路径介入
 - 读取 `bundle/config.json`
 - 检查容器 env 中是否包含 `ILUVATAR_COREX_VISIBLE_DEVICES=`
-- 若命中，则把 `ix-container-hook` 注入 `hooks.prestart[0]`
+- 若命中，则把 `accelerator-container-hook` 注入 `hooks.prestart[0]`
 - 其余命令原样转发给真实 `runc`
 
-### 3. `ix-installer`
+### 3. `accelerator-installer`
 
 以 DaemonSet init container 方式运行，在 GPU 节点上完成一次性安装。
 
 当前职责：
 
-- 复制 `ix-container-runtime` 和 `ix-container-hook` 到宿主机
-- 生成 `/etc/ix-toolkit/config.json`
-- patch `/etc/containerd/config.toml`，注册 `ix` runtime
+- 复制 `accelerator-container-runtime` 和 `accelerator-container-hook` 到宿主机
+- 生成 `/etc/accelerator-toolkit/config.json`
+- patch `/etc/containerd/config.toml`，注册 `accelerator` runtime
 - 可选重启 `containerd`
 - 使用 in-cluster API 给当前节点打 `iluvatar.ai/gpu=present` 标签
 
@@ -111,7 +111,7 @@ OCI prestart hook，由 `runc` 在容器启动前调用。
 ```json
 {
   "underlyingRuntime": "runc",
-  "hookPath": "/usr/local/bin/ix-container-hook",
+  "hookPath": "/usr/local/bin/accelerator-container-hook",
   "hook": {
     "driverLibraryPaths": ["/usr/local/corex/lib64", "/usr/local/corex/lib"],
     "driverBinaryPaths": ["/usr/local/corex/bin"],
@@ -139,13 +139,13 @@ OCI prestart hook，由 `runc` 在容器启动前调用。
 天数 Device Plugin 分配 /dev/iluvatarN
 并注入 ILUVATAR_COREX_VISIBLE_DEVICES=GPU-...
           ↓
-containerd 调用 ix-container-runtime create --bundle <path>
+containerd 调用 accelerator-container-runtime create --bundle <path>
           ↓
-ix-container-runtime 检测到 GPU env，向 config.json 注入 prestart hook
+accelerator-container-runtime 检测到 GPU env，向 config.json 注入 prestart hook
           ↓
 runc 执行 prestart hook
           ↓
-ix-container-hook:
+accelerator-container-hook:
   1. 解析 UUID -> GPU index
   2. 找到对应 /dev/iluvatarN
   3. 挂载设备节点
@@ -170,9 +170,9 @@ ix-container-hook:
 
 ## 项目边界
 
-ix-toolkit 的职责是注入**驱动层**，不是把整个天数 SDK 都搬进容器。
+accelerator-toolkit 的职责是注入**驱动层**，不是把整个天数 SDK 都搬进容器。
 
-适合由 ix-toolkit 注入的内容：
+适合由 accelerator-toolkit 注入的内容：
 
 - `/dev/iluvatarN`
 - `libcuda.so`、`libixthunk.so`、`libixml.so`
@@ -180,7 +180,7 @@ ix-toolkit 的职责是注入**驱动层**，不是把整个天数 SDK 都搬进
 - `ixsmi` 等基础 GPU 管理工具
 - `ld.so.conf.d` / `ld.so.cache` 所需配置
 
-不适合由 ix-toolkit 负责的内容：
+不适合由 accelerator-toolkit 负责的内容：
 
 - PyTorch、vLLM、DeepSpeed 等 Python AI 框架
 - 大型编译工具链、头文件、示例、文档

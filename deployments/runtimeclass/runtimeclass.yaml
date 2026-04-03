@@ -1,16 +1,17 @@
 ---
-# RuntimeClass for Iluvatar GPU workloads.
-# Pods that need GPU access must specify:
-#   spec:
-#     runtimeClassName: ix
+# Legacy reference manifest.
+# Current deployment flow should render RuntimeClass from a profile:
+#   go run ./cmd/accelerator-profile-render runtimeclass --profile profiles/iluvatar-bi-v150.yaml
+# or:
+#   make render-runtimeclass PROFILE=profiles/iluvatar-bi-v150.yaml
 #
-# This directs containerd to use ix-container-runtime (registered in
-# containerd's config.toml by ix-installer) instead of the default runtime.
+# Keep this file only as a readable Iluvatar example; do not treat it as the
+# source of truth for deployment.
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata:
-  name: ix
-handler: ix
+  name: iluvatar-bi-v150
+handler: iluvatar-bi-v150
 scheduling:
   nodeSelector:
     iluvatar.ai/gpu: "present"

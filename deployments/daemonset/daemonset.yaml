@@ -1,55 +1,51 @@
 ---
-# ix-toolkit DaemonSet
-# Runs on every node that has Iluvatar GPUs to:
-#   1. Install ix-container-runtime and ix-container-hook to the host.
-#   2. Patch the containerd configuration to register the ix runtime class.
-#   3. (Optionally) restart containerd.
+# Legacy reference manifest.
+# Current deployment flow should render DaemonSet from a profile:
+#   go run ./cmd/accelerator-profile-render daemonset --profile profiles/iluvatar-bi-v150.yaml --image <image>
+# or:
+#   make render-daemonset PROFILE=profiles/iluvatar-bi-v150.yaml IMAGE=<image>
 #
-# Prerequisites:
-#   - The container image ix-toolkit/installer must be built and pushed.
-#   - The official Iluvatar Device Plugin DaemonSet must already be running.
-#   - Nodes with Iluvatar GPUs should carry the label iluvatar.ai/gpu=present
-#     (or remove the nodeSelector below to run on all nodes).
+# Keep this file only as a readable Iluvatar example; do not treat it as the
+# source of truth for deployment.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: ix-toolkit
+  name: accelerator-toolkit
   namespace: kube-system
   labels:
-    app: ix-toolkit
+    app: accelerator-toolkit
 spec:
   selector:
     matchLabels:
-      app: ix-toolkit
+      app: accelerator-toolkit
   updateStrategy:
     type: RollingUpdate
   template:
     metadata:
       labels:
-        app: ix-toolkit
+        app: accelerator-toolkit
     spec:
-      serviceAccountName: ix-toolkit
+      serviceAccountName: accelerator-toolkit
       # Only run on nodes that have Iluvatar GPUs.
       nodeSelector:
         iluvatar.ai/gpu: "present"
       tolerations:
-        - operator: Exists
+        - key: iluvatar.ai/gpu
+          operator: Exists
           effect: NoSchedule
-        - operator: Exists
-          effect: NoExecute
       hostPID: true
 
       # ------------------------------------------------------------------ #
       # Init container: install binaries + patch containerd, then exit.     #
       # ------------------------------------------------------------------ #
       initContainers:
-        - name: ix-installer
-          image: ix-toolkit/installer:latest
+        - name: accelerator-installer
+          image: accelerator-toolkit/installer:latest
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true
           env:
-            # Injected by the Downward API — used by ix-installer to label this node.
+            # Injected by the Downward API — used by accelerator-installer to label this node.
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -57,21 +53,18 @@ spec:
             # Where to write binaries on the host (relative to /host).
             - name: HOST_BIN_DIR
               value: /usr/local/bin
-            # Where to write the ix-toolkit config on the host.
+            # Where to write the accelerator-toolkit config on the host.
             - name: HOST_CONFIG_DIR
-              value: /etc/ix-toolkit
+              value: /etc/accelerator-toolkit
             # Path where the host rootfs is bind-mounted into the container.
             - name: HOST_MOUNT
               value: /host
+            - name: ACCELERATOR_PROFILE_FILE
+              value: /profiles/iluvatar-bi-v150.yaml
             # Set to "true" to restart containerd after patching its config.
             - name: RESTART_CONTAINERD
               value: "true"
-            # Iluvatar driver library paths on the host (colon-separated).
-            - name: IX_DRIVER_LIB_PATHS
-              value: /usr/local/corex/lib64:/usr/local/corex/lib
-            - name: IX_DRIVER_BIN_PATHS
-              value: /usr/local/corex/bin
-            - name: IX_LOG_LEVEL
+            - name: ACCELERATOR_LOG_LEVEL
               value: info
           volumeMounts:
             - name: host-root
@@ -85,7 +78,7 @@ spec:
       # Without this Kubernetes would keep restarting the init container.  #
       # ------------------------------------------------------------------ #
       containers:
-        - name: ix-toolkit-pause
+        - name: accelerator-toolkit-pause
           image: registry.k8s.io/pause:3.9
           resources:
             requests:

@@ -1,0 +1,91 @@
+metadata:
+  name: iluvatar-bi-v150
+  vendor: Iluvatar
+  modelFamily: BI-V150
+  version: v1alpha1
+
+runtime:
+  handlerName: iluvatar-bi-v150
+  runtimeClassName: iluvatar-bi-v150
+  underlyingRuntime: runc
+  hookStage: prestart
+  hookBinary: /usr/local/bin/accelerator-container-hook
+
+kubernetes:
+  resourceNames:
+    - iluvatar.ai/gpu
+  nodeLabels:
+    iluvatar.ai/gpu: present
+  runtimeClassScheduling:
+    nodeSelector:
+      iluvatar.ai/gpu: present
+    tolerations:
+      - key: iluvatar.ai/gpu
+        operator: Exists
+        effect: NoSchedule
+
+device:
+  selectorEnvVars:
+    - ILUVATAR_COREX_VISIBLE_DEVICES
+  selectorFormats:
+    - all
+    - none
+    - index-list
+    - uuid-list
+  deviceGlobs:
+    - /dev/iluvatar*
+  controlDeviceGlobs: []
+  mapping:
+    strategy:
+      primary: command-csv-index-uuid
+      fallback: uuid-positional
+    command:
+      pathCandidates:
+        - /usr/local/corex/bin/ixsmi
+        - /usr/local/corex-4.3.0/bin/ixsmi
+        - ixsmi
+      args:
+        - --query-gpu=index,uuid
+        - --format=csv
+      env:
+        LD_LIBRARY_PATH: /usr/local/corex/lib64:/usr/local/corex/lib:/usr/local/corex-4.3.0/lib64:/usr/local/corex-4.3.0/lib
+    parser: csv-header-index-uuid
+  fallbackPolicy:
+    - skip-none
+    - error-on-empty
+    - degrade-on-mapping-command-failure
+
+inject:
+  containerRoot: /usr/local/corex
+  artifacts:
+    - name: device-nodes
+      kind: device-nodes
+      hostPaths:
+        - /dev/iluvatar*
+      containerPath: /dev
+      mode: bind
+    - name: driver-libraries
+      kind: shared-libraries
+      hostPaths:
+        - /usr/local/corex/lib64
+        - /usr/local/corex/lib
+      containerPath: /usr/local/corex
+      mode: so-only
+      excludeDirs:
+        - python3
+        - cmake
+        - clang
+    - name: driver-binaries
+      kind: directory
+      hostPaths:
+        - /usr/local/corex/bin
+      containerPath: /usr/local/corex
+      mode: bind
+  linker:
+    strategy: ldconfig
+    configPath: /etc/ld.so.conf.d/accelerator-toolkit.conf
+    paths:
+      - /usr/local/corex/lib64
+      - /usr/local/corex/lib
+    runLdconfig: true
+  extraEnv: {}

@@ -192,7 +192,7 @@ LC_ALL=en_US.utf8
 | | `/usr/local/corex/lib64/libcudnn.so*` | | cuDNN |
 | | `/usr/local/corex/lib64/libnccl.so*` | | NCCL |
 | **GPU 管理工具** | `/usr/local/corex/bin/ixsmi` | `/usr/local/corex/bin/` | GPU 监控 |
-| **ld.so 配置** | (hook 动态生成) | `/etc/ld.so.conf.d/ix-toolkit.conf` | 让容器内 linker 找到驱动库 |
+| **ld.so 配置** | (hook 动态生成) | `/etc/ld.so.conf.d/accelerator-toolkit.conf` | 让容器内 linker 找到驱动库 |
 | **环境变量** | (hook 读取已有值) | `LD_LIBRARY_PATH`, `PATH` | 通过修改 OCI spec 注入 |
 
 这些内容在宿主机安装驱动后就存在于 `/usr/local/corex-x.x.x/` 下，是与内核模块版本匹配的，**必须从宿主机挂载**（不能由镜像自带，否则版本不匹配会导致驱动故障）。

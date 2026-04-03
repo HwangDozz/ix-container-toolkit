@@ -1,36 +1,40 @@
-// Package config defines the configuration for ix-toolkit components.
+// Package config defines the configuration for accelerator-toolkit components.
 package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
 )
 
 const (
-	DefaultConfigPath = "/etc/ix-toolkit/config.json"
+	DefaultConfigPath = "/etc/accelerator-toolkit/config.json"
 
-	// DefaultUnderlyingRuntime is the OCI runtime that ix-container-runtime delegates to.
+	// Deprecated: legacy JSON compatibility default. Profile/runtimeview is the primary model.
+	// DefaultUnderlyingRuntime is the OCI runtime that accelerator-container-runtime delegates to.
 	DefaultUnderlyingRuntime = "runc"
 
-	// DefaultHookPath is where ix-container-hook binary is installed.
-	DefaultHookPath = "/usr/local/bin/ix-container-hook"
+	// Deprecated: legacy JSON compatibility default. Profile/runtimeview is the primary model.
+	// DefaultHookPath is where accelerator-container-hook binary is installed.
+	DefaultHookPath = "/usr/local/bin/accelerator-container-hook"
 
-	// DevicePrefix is the prefix of Iluvatar GPU device nodes.
-	DevicePrefix = "/dev/iluvatar"
-
-	// ResourceName is the Kubernetes extended resource name for Iluvatar GPU.
-	ResourceName = "iluvatar.ai/gpu"
+	// DefaultProfilePath is the default profile path copied to the host by accelerator-installer.
+	DefaultProfilePath = "/etc/accelerator-toolkit/profiles/active.yaml"
 )
 
-// Config holds the global ix-toolkit configuration.
+var ErrProfileRequired = errors.New("active profile is required; set ACCELERATOR_PROFILE_FILE or install /etc/accelerator-toolkit/profiles/active.yaml")
+
+// Config holds the global accelerator-toolkit configuration.
 type Config struct {
-	// UnderlyingRuntime is the OCI runtime that ix-container-runtime will delegate to.
+	// UnderlyingRuntime is the OCI runtime that accelerator-container-runtime will delegate to.
 	// Defaults to "runc".
 	UnderlyingRuntime string `json:"underlyingRuntime,omitempty"`
 
-	// HookPath is the path to the ix-container-hook binary.
+	// HookPath is the path to the accelerator-container-hook binary.
 	HookPath string `json:"hookPath,omitempty"`
 
 	// Hook contains configuration for the container hook behavior.
@@ -45,56 +49,64 @@ type Config struct {
 
 // HookConfig controls what the hook injects into the container.
 type HookConfig struct {
-	// DriverLibraryPaths is a list of host paths containing Iluvatar driver shared libraries
-	// that will be bind-mounted into the container.
-	DriverLibraryPaths []string `json:"driverLibraryPaths,omitempty"`
-
-	// DriverBinaryPaths is a list of host paths containing Iluvatar driver tools/binaries.
-	DriverBinaryPaths []string `json:"driverBinaryPaths,omitempty"`
-
-	// ContainerDriverRoot is the path inside the container where driver libs are mounted.
-	ContainerDriverRoot string `json:"containerDriverRoot,omitempty"`
-
-	// DisableRequire controls whether to proceed even if the GPU environment is missing.
+	// DisableRequire controls whether to proceed even if the selector
+	// environment variable is missing or no matching device is found.
 	DisableRequire bool `json:"disableRequire,omitempty"`
-
-	// DeviceListEnvvar is the environment variable that specifies which GPUs to expose.
-	// Defaults to ILUVATAR_COREX_VISIBLE_DEVICES.
-	DeviceListEnvvar string `json:"deviceListEnvvar,omitempty"`
-
-	// LibraryFilterMode controls how driver library directories are mounted:
-	//   "directory" — bind-mount the entire directory (legacy behavior).
-	//   "so-only"   — only mount .so/.so.* shared libraries, skipping subdirectories
-	//                  and static archives. This avoids mounting ~12GB of Python
-	//                  packages that live under lib64/python3/.
-	// Defaults to "so-only".
-	LibraryFilterMode string `json:"libraryFilterMode,omitempty"`
-
-	// LibraryExcludeDirs is a list of subdirectory names to exclude when
-	// LibraryFilterMode is "so-only". Defaults to ["python3", "cmake", "clang"].
-	LibraryExcludeDirs []string `json:"libraryExcludeDirs,omitempty"`
 }
 
-// Defaults returns a Config populated with sensible defaults.
+// Defaults returns a Config populated with generic process-level defaults.
 func Defaults() *Config {
 	return &Config{
 		UnderlyingRuntime: DefaultUnderlyingRuntime,
 		HookPath:          DefaultHookPath,
 		LogLevel:          "info",
-		Hook: HookConfig{
-			DriverLibraryPaths:  []string{"/usr/local/corex/lib64", "/usr/local/corex/lib"},
-			DriverBinaryPaths:   []string{"/usr/local/corex/bin"},
-			ContainerDriverRoot: "/usr/local/corex",
-			DeviceListEnvvar:    "ILUVATAR_COREX_VISIBLE_DEVICES",
-			LibraryFilterMode:   "so-only",
-			LibraryExcludeDirs:  []string{"python3", "cmake", "clang"},
-		},
 	}
 }
 
-// Load reads the config file at path (or DefaultConfigPath) and merges with defaults.
+// Load reads the config file at path (or DefaultConfigPath) and merges it on
+// top of the active profile-derived defaults.
 func Load(path string) (*Config, error) {
-	cfg := Defaults()
+	return LoadWithProfile(path, "")
+}
+
+// ResolveProfilePath returns the explicit profile path when provided, otherwise
+// falls back to DefaultProfilePath if it exists.
+func ResolveProfilePath(profilePath string) string {
+	if profilePath != "" {
+		return profilePath
+	}
+	if _, err := os.Stat(DefaultProfilePath); err == nil {
+		return DefaultProfilePath
+	}
+	return ""
+}
+
+// LoadWithProfile reads config JSON and merges it on top of defaults derived
+// from the given profile path. A readable profile is required.
+func LoadWithProfile(path, profilePath string) (*Config, error) {
+	profilePath = ResolveProfilePath(profilePath)
+	if profilePath == "" {
+		return nil, ErrProfileRequired
+	}
+
+	prof, err := profile.Load(profilePath)
+	if err != nil {
+		return nil, fmt.Errorf("loading profile %s: %w", profilePath, err)
+	}
+	return LoadWithLoadedProfile(path, prof)
+}
+
+// LoadWithLoadedProfile reads config JSON and merges it on top of process-level
+// defaults derived from an already loaded profile.
+func LoadWithLoadedProfile(path string, prof *profile.Profile) (*Config, error) {
+	if prof == nil {
+		return nil, ErrProfileRequired
+	}
+
+	cfg, err := DefaultsFromProfile(prof)
+	if err != nil {
+		return nil, fmt.Errorf("deriving config defaults from profile %s: %w", prof.Metadata.Name, err)
+	}
 
 	if path == "" {
 		path = DefaultConfigPath
@@ -118,6 +130,21 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// DefaultsFromProfile extracts process-level defaults from a loaded profile.
+func DefaultsFromProfile(p *profile.Profile) (*Config, error) {
+	if p == nil {
+		return nil, fmt.Errorf("profile is nil")
+	}
+
+	cfg := &Config{
+		UnderlyingRuntime: p.Runtime.UnderlyingRuntime,
+		HookPath:          p.Runtime.HookBinary,
+		LogLevel:          "info",
+	}
+	cfg.applyDefaults()
+	return cfg, nil
+}
+
 func (c *Config) applyDefaults() {
 	if c.UnderlyingRuntime == "" {
 		c.UnderlyingRuntime = DefaultUnderlyingRuntime
@@ -127,17 +154,5 @@ func (c *Config) applyDefaults() {
 	}
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
-	}
-	if c.Hook.DeviceListEnvvar == "" {
-		c.Hook.DeviceListEnvvar = "ILUVATAR_COREX_VISIBLE_DEVICES"
-	}
-	if c.Hook.ContainerDriverRoot == "" {
-		c.Hook.ContainerDriverRoot = "/usr/local/corex"
-	}
-	if c.Hook.LibraryFilterMode == "" {
-		c.Hook.LibraryFilterMode = "so-only"
-	}
-	if len(c.Hook.LibraryExcludeDirs) == 0 {
-		c.Hook.LibraryExcludeDirs = []string{"python3", "cmake", "clang"}
 	}
 }

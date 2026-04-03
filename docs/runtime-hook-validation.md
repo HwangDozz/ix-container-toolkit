@@ -1,7 +1,7 @@
 # RuntimeClass 与 Hook 联调验证报告
 
 > 验证日期：2026-04-02
-> 验证范围：`RuntimeClass ix`、`containerd` runtime 注册、`ix-container-runtime` hook 注入、`ix-container-hook` 设备与驱动注入
+> 验证范围：`RuntimeClass ix`、`containerd` runtime 注册、`accelerator-container-runtime` hook 注入、`accelerator-container-hook` 设备与驱动注入
 > 验证节点：当前物理宿主机（同时为目标 Kubernetes 节点）
 
 ---
@@ -12,9 +12,9 @@
 
 1. Kubernetes `RuntimeClass ix` 能被 kubelet 接受
 2. `containerd` 已正确注册 `ix` runtime handler
-3. `ix-container-runtime` 能在 `create` 阶段把 `ix-container-hook` 注入 OCI spec
-4. `ix-container-hook` 能识别 Device Plugin 注入的天数 GPU 信息
-5. `ix-container-hook` 能把设备节点、驱动库、驱动工具和 `ld.so` 配置正确写入容器
+3. `accelerator-container-runtime` 能在 `create` 阶段把 `accelerator-container-hook` 注入 OCI spec
+4. `accelerator-container-hook` 能识别 Device Plugin 注入的天数 GPU 信息
+5. `accelerator-container-hook` 能把设备节点、驱动库、驱动工具和 `ld.so` 配置正确写入容器
 
 ---
 
@@ -25,8 +25,8 @@
 先确认宿主机已经具备以下条件：
 
 - 存在宿主机二进制：
-  - `/usr/local/bin/ix-container-runtime`
-  - `/usr/local/bin/ix-container-hook`
+  - `/usr/local/bin/accelerator-container-runtime`
+  - `/usr/local/bin/accelerator-container-hook`
 - `containerd` 配置文件 `/etc/containerd/config.toml` 中已经注册 `ix` runtime
 - 集群中已存在 `RuntimeClass ix`
 
@@ -83,7 +83,7 @@ env | grep ILUVATAR
 ls -l /dev/iluvatar*
 ls -ld /usr/local/corex /usr/local/corex/lib /usr/local/corex/lib64 /usr/local/corex/bin
 ls -l /usr/local/corex/bin/ixsmi
-cat /etc/ld.so.conf.d/ix-toolkit.conf
+cat /etc/ld.so.conf.d/accelerator-toolkit.conf
 ```
 
 观察到：
@@ -100,7 +100,7 @@ cat /etc/ld.so.conf.d/ix-toolkit.conf
 
 为了确认问题是在 runtime 还是在 hook，本次排查把宿主机配置切到 debug：
 
-- 修改 [config.json](/etc/ix-toolkit/config.json)
+- 修改 [config.json](/etc/accelerator-toolkit/config.json)
   - `logLevel: debug`
   - `logFile: /var/log/ix-toolkit.log`
 
@@ -126,7 +126,7 @@ kubectl -n crater-workspace exec sg-huangsy-260402-440ca-default0-0-ix -- bash
 说明：
 
 - `hook` 只会在容器创建时执行一次
-- 所以每次改动 `ix-container-hook` 或 `ix-container-runtime` 后，都必须重建 Pod 才能看到结果
+- 所以每次改动 `accelerator-container-hook` 或 `accelerator-container-runtime` 后，都必须重建 Pod 才能看到结果
 
 ---
 
@@ -172,13 +172,13 @@ kubectl -n crater-workspace exec sg-huangsy-260402-440ca-default0-0-ix -- bash
 
 ---
 
-### 3.3 `ix-container-runtime` 参数解析有 bug，导致 hook 未注入
+### 3.3 `accelerator-container-runtime` 参数解析有 bug，导致 hook 未注入
 
 问题：
 
 - [runtime.go](/home/huangsy/project/ix-container-toolkit/internal/runtime/runtime.go) 的参数解析逻辑会把 `--root`、`--log` 这类全局参数后的值误判成子命令
 - 结果没能正确识别 `create --bundle ...`
-- `ix-container-hook` 没被注入到 OCI spec 的 `hooks.prestart`
+- `accelerator-container-hook` 没被注入到 OCI spec 的 `hooks.prestart`
 
 修复：
 
@@ -201,7 +201,7 @@ kubectl -n crater-workspace exec sg-huangsy-260402-440ca-default0-0-ix -- bash
 
 - 宿主机日志出现：
   - `intercepting container create`
-  - `injected ix-container-hook as prestart hook`
+  - `injected accelerator-container-hook as prestart hook`
 
 这证明 runtime 已经能正确拦截 `create` 并注入 hook。
 
@@ -301,7 +301,7 @@ kubectl -n crater-workspace exec sg-huangsy-260402-440ca-default0-0-ix -- bash
 
 ### 4.4 `ld.so` 配置正确
 
-容器内 [ix-toolkit.conf](/etc/ld.so.conf.d/ix-toolkit.conf) 内容为：
+容器内 [accelerator-toolkit.conf](/etc/ld.so.conf.d/accelerator-toolkit.conf) 内容为：
 
 ```text
 /usr/local/corex/lib64
@@ -312,7 +312,7 @@ kubectl -n crater-workspace exec sg-huangsy-260402-440ca-default0-0-ix -- bash
 宿主机 [ix-toolkit.log](/var/log/ix-toolkit.log) 中已确认出现：
 
 - `intercepting container create`
-- `injected ix-container-hook as prestart hook`
+- `injected accelerator-container-hook as prestart hook`
 - `hook invoked`
 - `injecting Iluvatar GPU into container`
 - `resolved UUID-to-index mapping`
@@ -323,9 +323,9 @@ kubectl -n crater-workspace exec sg-huangsy-260402-440ca-default0-0-ix -- bash
 结论：
 
 - `RuntimeClass ix` 生效
-- `containerd` 已使用 `ix-container-runtime`
-- `ix-container-runtime` 已正确向 OCI spec 注入 `ix-container-hook`
-- `ix-container-hook` 已成功识别并处理天数 GPU
+- `containerd` 已使用 `accelerator-container-runtime`
+- `accelerator-container-runtime` 已正确向 OCI spec 注入 `accelerator-container-hook`
+- `accelerator-container-hook` 已成功识别并处理天数 GPU
 - 容器内设备、驱动库、驱动工具和动态链接器配置均已正确注入
 
 ---
@@ -349,10 +349,10 @@ kubectl -n crater-workspace exec sg-huangsy-260402-440ca-default0-0-ix -- bash
 当前宿主机已经通过手工覆盖二进制完成验证，但要把本次修复正式带入集群，还需要继续做以下工作：
 
 1. 重新构建包含最新代码的部署镜像
-2. 更新 DaemonSet，确保所有 GPU 节点安装到同一版本的 `ix-container-runtime` 和 `ix-container-hook`
+2. 更新 DaemonSet，确保所有 GPU 节点安装到同一版本的 `accelerator-container-runtime` 和 `accelerator-container-hook`
 3. 在至少一个额外 GPU 节点重复做一次验证，排除节点差异
 4. 补一个真正调用 GPU 驱动或 `ixsmi` 的功能测试 Pod，而不只是验证文件存在
-5. 视运维需要决定是否把宿主机 [config.json](/etc/ix-toolkit/config.json) 的日志级别从 `debug` 调回 `info`
+5. 视运维需要决定是否把宿主机 [config.json](/etc/accelerator-toolkit/config.json) 的日志级别从 `debug` 调回 `info`
 
 ---
 
@@ -362,7 +362,7 @@ kubectl -n crater-workspace exec sg-huangsy-260402-440ca-default0-0-ix -- bash
 
 - `RuntimeClass` YAML 字段错误
 - `containerd` 配置变更后未重启
-- `ix-container-runtime` 的参数解析不适配真实 `containerd` 调用方式
+- `accelerator-container-runtime` 的参数解析不适配真实 `containerd` 调用方式
 - `hook` 对 symlink 路径做了重复处理
 - `hook` 使用普通文件 bind mount 的策略不适合当前运行环境
 

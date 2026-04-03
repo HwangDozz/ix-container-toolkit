@@ -4,23 +4,40 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 
-	"github.com/ix-toolkit/ix-toolkit/pkg/config"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/config"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/runtimeview"
 )
 
-func testRuntime(cfg *config.Config) *Runtime {
+func testRuntime(cfg *config.Config, prof *profile.Profile) *Runtime {
 	log := logrus.New()
 	log.SetOutput(os.Stderr)
 	log.SetLevel(logrus.DebugLevel)
-	return New(cfg, log)
+	return New(runtimeview.New(cfg, prof), log)
 }
 
-func defaultCfg() *config.Config {
-	return config.Defaults()
+func defaultProfile(t *testing.T) *profile.Profile {
+	t.Helper()
+	prof, err := profile.Load(filepath.Join("..", "..", "profiles", "iluvatar-bi-v150.yaml"))
+	if err != nil {
+		t.Fatalf("profile.Load returned error: %v", err)
+	}
+	return prof
+}
+
+func defaultCfg(t *testing.T, prof *profile.Profile) *config.Config {
+	t.Helper()
+	cfg, err := config.DefaultsFromProfile(prof)
+	if err != nil {
+		t.Fatalf("DefaultsFromProfile returned error: %v", err)
+	}
+	return cfg
 }
 
 // ----- parseArgs -----
@@ -146,7 +163,8 @@ func TestParseArgs_FlagsBeforeCommandWithSeparateValues(t *testing.T) {
 // ----- containerRequestsGPU -----
 
 func TestContainerRequestsGPU_WithEnv(t *testing.T) {
-	r := testRuntime(defaultCfg())
+	prof := defaultProfile(t)
+	r := testRuntime(defaultCfg(t, prof), prof)
 	spec := &specs.Spec{
 		Process: &specs.Process{
 			Env: []string{"PATH=/usr/bin", "ILUVATAR_COREX_VISIBLE_DEVICES=0"},
@@ -158,7 +176,8 @@ func TestContainerRequestsGPU_WithEnv(t *testing.T) {
 }
 
 func TestContainerRequestsGPU_WithoutEnv(t *testing.T) {
-	r := testRuntime(defaultCfg())
+	prof := defaultProfile(t)
+	r := testRuntime(defaultCfg(t, prof), prof)
 	spec := &specs.Spec{
 		Process: &specs.Process{
 			Env: []string{"PATH=/usr/bin"},
@@ -170,7 +189,8 @@ func TestContainerRequestsGPU_WithoutEnv(t *testing.T) {
 }
 
 func TestContainerRequestsGPU_NilProcess(t *testing.T) {
-	r := testRuntime(defaultCfg())
+	prof := defaultProfile(t)
+	r := testRuntime(defaultCfg(t, prof), prof)
 	spec := &specs.Spec{}
 	if r.containerRequestsGPU(spec) {
 		t.Error("expected containerRequestsGPU = false for nil Process")
@@ -178,7 +198,8 @@ func TestContainerRequestsGPU_NilProcess(t *testing.T) {
 }
 
 func TestContainerRequestsGPU_EmptyEnvValue(t *testing.T) {
-	r := testRuntime(defaultCfg())
+	prof := defaultProfile(t)
+	r := testRuntime(defaultCfg(t, prof), prof)
 	spec := &specs.Spec{
 		Process: &specs.Process{
 			Env: []string{"ILUVATAR_COREX_VISIBLE_DEVICES="},
@@ -191,9 +212,14 @@ func TestContainerRequestsGPU_EmptyEnvValue(t *testing.T) {
 }
 
 func TestContainerRequestsGPU_CustomEnvvar(t *testing.T) {
-	cfg := defaultCfg()
-	cfg.Hook.DeviceListEnvvar = "MY_GPU"
-	r := testRuntime(cfg)
+	baseProf := defaultProfile(t)
+	cfg := defaultCfg(t, baseProf)
+	prof := &profile.Profile{
+		Device: profile.Device{
+			SelectorEnvVars: []string{"MY_GPU"},
+		},
+	}
+	r := testRuntime(cfg, prof)
 	spec := &specs.Spec{
 		Process: &specs.Process{
 			Env: []string{"MY_GPU=all"},
@@ -201,6 +227,26 @@ func TestContainerRequestsGPU_CustomEnvvar(t *testing.T) {
 	}
 	if !r.containerRequestsGPU(spec) {
 		t.Error("expected containerRequestsGPU = true with custom envvar")
+	}
+}
+
+func TestContainerRequestsGPU_ProfileSelectorEnvVars(t *testing.T) {
+	baseProf := defaultProfile(t)
+	cfg := defaultCfg(t, baseProf)
+	prof := &profile.Profile{
+		Device: profile.Device{
+			SelectorEnvVars: []string{"GPU_VISIBLE_DEVICES", "ALT_GPU_VISIBLE_DEVICES"},
+		},
+	}
+	log := logrus.New()
+	r := New(runtimeview.New(cfg, prof), log)
+	spec := &specs.Spec{
+		Process: &specs.Process{
+			Env: []string{"ALT_GPU_VISIBLE_DEVICES=0"},
+		},
+	}
+	if !r.containerRequestsGPU(spec) {
+		t.Error("expected containerRequestsGPU = true with profile selector env vars")
 	}
 }
 
@@ -241,9 +287,10 @@ func TestInjectHook_InjectsWhenGPURequested(t *testing.T) {
 	}
 	writeSpec(t, bundleDir, spec)
 
-	cfg := defaultCfg()
-	cfg.HookPath = "/usr/bin/ix-container-hook"
-	r := testRuntime(cfg)
+	prof := defaultProfile(t)
+	cfg := defaultCfg(t, prof)
+	cfg.HookPath = "/usr/bin/accelerator-container-hook"
+	r := testRuntime(cfg, prof)
 
 	if err := r.injectHook(bundleDir); err != nil {
 		t.Fatalf("injectHook returned error: %v", err)
@@ -269,7 +316,8 @@ func TestInjectHook_SkipsWhenNoGPU(t *testing.T) {
 	}
 	writeSpec(t, bundleDir, spec)
 
-	r := testRuntime(defaultCfg())
+	prof := defaultProfile(t)
+	r := testRuntime(defaultCfg(t, prof), prof)
 	if err := r.injectHook(bundleDir); err != nil {
 		t.Fatalf("injectHook returned error: %v", err)
 	}
@@ -295,9 +343,10 @@ func TestInjectHook_PrependsBefore_ExistingHooks(t *testing.T) {
 	}
 	writeSpec(t, bundleDir, spec)
 
-	cfg := defaultCfg()
-	cfg.HookPath = "/usr/bin/ix-container-hook"
-	r := testRuntime(cfg)
+	prof := defaultProfile(t)
+	cfg := defaultCfg(t, prof)
+	cfg.HookPath = "/usr/bin/accelerator-container-hook"
+	r := testRuntime(cfg, prof)
 
 	if err := r.injectHook(bundleDir); err != nil {
 		t.Fatalf("injectHook returned error: %v", err)
@@ -316,8 +365,58 @@ func TestInjectHook_PrependsBefore_ExistingHooks(t *testing.T) {
 	}
 }
 
+func TestInjectHook_InjectsProfileExtraEnv(t *testing.T) {
+	bundleDir := t.TempDir()
+	spec := specs.Spec{
+		Version: "1.0.0",
+		Root:    &specs.Root{Path: "rootfs"},
+		Process: &specs.Process{
+			Env: []string{"ILUVATAR_COREX_VISIBLE_DEVICES=0", "PATH=/usr/bin"},
+		},
+	}
+	writeSpec(t, bundleDir, spec)
+
+	baseProf := defaultProfile(t)
+	cfg := defaultCfg(t, baseProf)
+	cfg.HookPath = "/usr/bin/accelerator-container-hook"
+	prof := &profile.Profile{
+		Device: profile.Device{
+			SelectorEnvVars: []string{"ILUVATAR_COREX_VISIBLE_DEVICES"},
+		},
+		Inject: profile.Inject{
+			ExtraEnv: map[string]string{
+				"LD_LIBRARY_PATH": "/usr/local/corex/lib64",
+				"PATH":            "/should/not/override",
+			},
+		},
+	}
+	log := logrus.New()
+	r := New(runtimeview.New(cfg, prof), log)
+
+	if err := r.injectHook(bundleDir); err != nil {
+		t.Fatalf("injectHook returned error: %v", err)
+	}
+
+	modified := readSpec(t, bundleDir)
+	envSet := map[string]string{}
+	for _, env := range modified.Process.Env {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			envSet[parts[0]] = parts[1]
+		}
+	}
+
+	if envSet["LD_LIBRARY_PATH"] != "/usr/local/corex/lib64" {
+		t.Fatalf("LD_LIBRARY_PATH = %q, want %q", envSet["LD_LIBRARY_PATH"], "/usr/local/corex/lib64")
+	}
+	if envSet["PATH"] != "/usr/bin" {
+		t.Fatalf("PATH = %q, want original value", envSet["PATH"])
+	}
+}
+
 func TestInjectHook_MissingBundle(t *testing.T) {
-	r := testRuntime(defaultCfg())
+	prof := defaultProfile(t)
+	r := testRuntime(defaultCfg(t, prof), prof)
 	err := r.injectHook("/nonexistent/bundle")
 	if err == nil {
 		t.Error("injectHook should return error for missing bundle")

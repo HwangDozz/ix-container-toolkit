@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
 )
 
 func testLogger() *logrus.Logger {
@@ -124,39 +126,128 @@ func TestFilterByIndex_DuplicateIndices(t *testing.T) {
 	}
 }
 
-// Discover tests — only "none" and "all" branches are deterministic
-// without real /dev/iluvatar* nodes.
+// DiscoverWithConfig tests — only "none" and index parsing branches are
+// deterministic without real device nodes.
 
-func TestDiscover_None(t *testing.T) {
+func TestDiscoverWithConfig_None(t *testing.T) {
 	log := testLogger()
-	result, err := Discover("none", log)
+	result, err := DiscoverWithConfig("none", ResolverConfig{}, log)
 	if err != nil {
-		t.Fatalf("Discover(\"none\") returned error: %v", err)
+		t.Fatalf("DiscoverWithConfig(\"none\") returned error: %v", err)
 	}
 	if result != nil {
-		t.Errorf("Discover(\"none\") should return nil, got %v", result)
+		t.Errorf("DiscoverWithConfig(\"none\") should return nil, got %v", result)
 	}
 }
 
-func TestDiscover_NoneVariants(t *testing.T) {
+func TestDiscoverWithConfig_NoneVariants(t *testing.T) {
 	log := testLogger()
 	for _, v := range []string{"NONE", "None", "  none  "} {
-		result, err := Discover(v, log)
+		result, err := DiscoverWithConfig(v, ResolverConfig{}, log)
 		if err != nil {
-			t.Fatalf("Discover(%q) returned error: %v", v, err)
+			t.Fatalf("DiscoverWithConfig(%q) returned error: %v", v, err)
 		}
 		if result != nil {
-			t.Errorf("Discover(%q) should return nil", v)
+			t.Errorf("DiscoverWithConfig(%q) should return nil", v)
 		}
 	}
 }
 
-func TestDiscover_InvalidIndex(t *testing.T) {
+func TestDiscoverWithConfig_InvalidIndex(t *testing.T) {
 	log := testLogger()
-	_, err := Discover("notanumber", log)
-	// enumerateAll succeeds (returns empty on hosts without iluvatar devices),
-	// then filterByIndex returns an error for "notanumber".
+	_, err := DiscoverWithConfig("notanumber", ResolverConfig{}, log)
 	if err == nil {
-		t.Error("expected error for invalid index in Discover, got nil")
+		t.Error("expected error for invalid index in DiscoverWithConfig, got nil")
+	}
+}
+
+func TestTrailingIndex(t *testing.T) {
+	idx, ok := trailingIndex("iluvatar7")
+	if !ok || idx != 7 {
+		t.Fatalf("trailingIndex = (%d, %v), want (7, true)", idx, ok)
+	}
+
+	_, ok = trailingIndex("iluvatarctl")
+	if ok {
+		t.Fatal("trailingIndex should reject names without numeric suffix")
+	}
+}
+
+func TestResolverConfigFromProfile(t *testing.T) {
+	p := &profile.Profile{
+		Device: profile.Device{
+			DeviceGlobs: []string{"/dev/vendor*"},
+			Mapping: profile.DeviceMapping{
+				Command: profile.MappingCommand{
+					PathCandidates: []string{"/usr/bin/vendor-smi"},
+					Args:           []string{"--query"},
+					Env: map[string]string{
+						"LD_LIBRARY_PATH": "/opt/vendor/lib",
+					},
+				},
+				Parser: "csv-header-index-uuid",
+			},
+		},
+	}
+
+	cfg := ResolverConfigFromProfile(p)
+	if len(cfg.DeviceGlobs) != 1 || cfg.DeviceGlobs[0] != "/dev/vendor*" {
+		t.Fatalf("DeviceGlobs = %v", cfg.DeviceGlobs)
+	}
+	if len(cfg.MappingPathCandidates) != 1 || cfg.MappingPathCandidates[0] != "/usr/bin/vendor-smi" {
+		t.Fatalf("MappingPathCandidates = %v", cfg.MappingPathCandidates)
+	}
+	if len(cfg.MappingArgs) != 1 || cfg.MappingArgs[0] != "--query" {
+		t.Fatalf("MappingArgs = %v", cfg.MappingArgs)
+	}
+	if cfg.MappingEnv["LD_LIBRARY_PATH"] != "/opt/vendor/lib" {
+		t.Fatalf("MappingEnv = %v", cfg.MappingEnv)
+	}
+}
+
+func TestResolverConfigFromProfile_DoesNotLeakIluvatarDefaults(t *testing.T) {
+	p := &profile.Profile{
+		Device: profile.Device{
+			DeviceGlobs: []string{"/dev/vendor*"},
+		},
+	}
+
+	cfg := ResolverConfigFromProfile(p)
+	if len(cfg.DeviceGlobs) != 1 || cfg.DeviceGlobs[0] != "/dev/vendor*" {
+		t.Fatalf("DeviceGlobs = %v", cfg.DeviceGlobs)
+	}
+	if len(cfg.MappingPathCandidates) != 0 {
+		t.Fatalf("MappingPathCandidates = %v, want empty", cfg.MappingPathCandidates)
+	}
+	if len(cfg.MappingArgs) != 0 {
+		t.Fatalf("MappingArgs = %v, want empty", cfg.MappingArgs)
+	}
+	if cfg.MappingParser != "" {
+		t.Fatalf("MappingParser = %q, want empty", cfg.MappingParser)
+	}
+}
+
+func TestParseMappingOutput_UnsupportedParser(t *testing.T) {
+	_, err := parseMappingOutput([]byte("index, uuid\n0, GPU-test\n"), "json")
+	if err == nil {
+		t.Fatal("expected parser error, got nil")
+	}
+}
+
+func TestUsesMappedIdentifiers(t *testing.T) {
+	cases := map[string]bool{
+		"":          false,
+		"all":       false,
+		"none":      false,
+		"0":         false,
+		" 12 ":      false,
+		"GPU-test":  true,
+		"Ascend910": true,
+	}
+
+	for input, want := range cases {
+		if got := usesMappedIdentifiers(input); got != want {
+			t.Fatalf("usesMappedIdentifiers(%q) = %v, want %v", input, got, want)
+		}
 	}
 }

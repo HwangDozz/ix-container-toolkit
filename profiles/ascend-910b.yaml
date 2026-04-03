@@ -1,0 +1,97 @@
+metadata:
+  name: ascend-910b
+  vendor: Ascend
+  modelFamily: 910B
+  version: v1alpha1
+
+runtime:
+  handlerName: ascend-910b
+  runtimeClassName: ascend-910b
+  underlyingRuntime: runc
+  hookStage: prestart
+  hookBinary: /usr/local/bin/accelerator-container-hook
+
+kubernetes:
+  resourceNames:
+    - huawei.com/Ascend910
+  nodeLabels:
+    accelerator: huawei-Ascend910
+  runtimeClassScheduling:
+    nodeSelector:
+      accelerator: huawei-Ascend910
+    tolerations:
+      - key: huawei.com/Ascend910
+        operator: Exists
+        effect: NoSchedule
+
+device:
+  selectorEnvVars:
+    - ASCEND_VISIBLE_DEVICES
+  selectorFormats:
+    - index-list
+  deviceGlobs:
+    - /dev/davinci*
+  controlDeviceGlobs:
+    - /dev/davinci_manager
+    - /dev/devmm_svm
+    - /dev/hisi_hdc
+  mapping:
+    strategy:
+      primary: env-index-list
+      fallback: none
+  fallbackPolicy:
+    - skip-none
+    - error-on-empty
+
+inject:
+  containerRoot: /usr/local/Ascend
+  artifacts:
+    - name: device-nodes
+      kind: device-nodes
+      hostPaths:
+        - /dev/davinci*
+      containerPath: /dev
+      mode: bind
+    - name: driver-libraries
+      kind: shared-libraries
+      hostPaths:
+        - /usr/local/Ascend/driver/lib64/common
+        - /usr/local/Ascend/driver/lib64/driver
+        - /usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_0/lib
+        - /usr/local/Ascend/ascend-toolkit/latest/lib64
+        - /usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64
+      containerPath: /usr/local/Ascend
+      mode: so-only
+      excludeDirs: []
+    - name: driver-binaries
+      kind: directory
+      hostPaths:
+        - /usr/local/Ascend/driver/tools
+        - /usr/local/Ascend/ascend-toolkit/latest/bin
+        - /usr/local/Ascend/ascend-toolkit/latest/tools/ccec_compiler/bin
+      containerPath: /usr/local/Ascend
+      mode: bind
+  linker:
+    strategy: ldconfig
+    configPath: /etc/ld.so.conf.d/accelerator-toolkit.conf
+    paths:
+      - /usr/local/Ascend/driver/lib64/common
+      - /usr/local/Ascend/driver/lib64/driver
+      - /usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_0/lib
+      - /usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64
+      - /usr/local/Ascend/ascend-toolkit/latest/lib64
+      - /usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/opskernel
+      - /usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/nnengine
+    runLdconfig: true
+  extraEnv:
+    PATH: '/usr/local/Ascend/ascend-toolkit/latest/bin:/usr/local/Ascend/ascend-toolkit/latest/tools/ccec_compiler/bin:/usr/local/python3.11.13/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+    LD_LIBRARY_PATH: '/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_0/lib:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64/plugin:/usr/local/Ascend/ascend-toolkit/latest/lib64:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/opskernel:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/nnengine:/usr/local/Ascend/ascend-toolkit/latest/opp/built-in/op_impl/ai_core/tbe/op_tiling:/usr/local/Ascend/driver/lib64/common/:/usr/local/Ascend/driver/lib64/driver/:'
+    PYTHONPATH: '/usr/local/python3.11.13/lib/python3.11/site-packages:/opt/npu_computing_forecast:/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:/usr/local/Ascend/ascend-toolkit/latest/opp/built-in/op_impl/ai_core/tbe:'
+    ASCEND_OPP_PATH: /usr/local/Ascend/ascend-toolkit/latest/opp
+    ASCEND_AICPU_PATH: /usr/local/Ascend/ascend-toolkit/latest
+    TOOLCHAIN_HOME: /usr/local/Ascend/ascend-toolkit/latest/toolkit
+    ASCEND_HOME_PATH: /usr/local/Ascend/ascend-toolkit/latest
+    ASCEND_TOOLKIT_HOME: /usr/local/Ascend/ascend-toolkit/latest
+    ASCEND_RUNTIME_OPTIONS: ""
+    CRATER_ASCEND_ENV_INITIALIZED: "1"
+    NPU_COMPUTING_FORECAST_HOME: /opt/npu_computing_forecast

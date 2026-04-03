@@ -1,4 +1,4 @@
-// Package logger provides a shared logger for ix-toolkit components.
+// Package logger provides a shared logger for accelerator-toolkit components.
 package logger
 
 import (

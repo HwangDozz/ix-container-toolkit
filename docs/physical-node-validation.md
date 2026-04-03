@@ -194,7 +194,7 @@ cmd.Env = append(os.Environ(),
 
 ### 问题三（P0）：缺少 RuntimeClass 资源
 
-**根本原因：** Pod 需要通过 `runtimeClassName: ix` 指定使用 `ix-container-runtime`，但集群中没有对应的 `RuntimeClass` 资源，`kubectl apply` 后 Pod 会因找不到 runtime class 而无法调度。
+**根本原因：** Pod 需要通过 `runtimeClassName: ix` 指定使用 `accelerator-container-runtime`，但集群中没有对应的 `RuntimeClass` 资源，`kubectl apply` 后 Pod 会因找不到 runtime class 而无法调度。
 
 **修复位置：** 新增 `deployments/runtimeclass/runtimeclass.yaml`，更新 `Makefile` 的 `deploy`/`undeploy` target。
 
@@ -246,7 +246,7 @@ func filterByUUID(...) ([]Device, error) {
 func runLdconfig(rootfs string) error {
     cmd := exec.Command(ldconfig)
     cmd.SysProcAttr = &syscall.SysProcAttr{Chroot: rootfs}
-    // ldconfig 在容器 rootfs 内读取 /etc/ld.so.conf.d/ix-toolkit.conf
+    // ldconfig 在容器 rootfs 内读取 /etc/ld.so.conf.d/accelerator-toolkit.conf
     // 并更新 /etc/ld.so.cache
     return cmd.CombinedOutput()
 }
@@ -260,7 +260,7 @@ func runLdconfig(rootfs string) error {
 
 **根本原因：** DaemonSet 使用 `nodeSelector: iluvatar.ai/gpu: "present"` 限制只在 GPU 节点运行，但没有任何机制自动给节点打这个标签，需要运维手动执行 `kubectl label node`，部署流程不完整。
 
-**修复位置：** `cmd/ix-installer/main.go` 新增 `labelNode()` 步骤；`deployments/daemonset/daemonset.yaml` 通过 Downward API 注入 `NODE_NAME`；`deployments/rbac/rbac.yaml` 已有 `patch nodes` 权限（无需修改）。
+**修复位置：** `cmd/accelerator-installer/main.go` 新增 `labelNode()` 步骤；`deployments/daemonset/daemonset.yaml` 通过 Downward API 注入 `NODE_NAME`；`deployments/rbac/rbac.yaml` 已有 `patch nodes` 权限（无需修改）。
 
 **修复方式：** installer 在安装步骤中通过 in-cluster ServiceAccount token 直接调用 Kubernetes API（JSON Merge Patch）给当前节点打标签，失败时仅 Warn 不阻断安装：
 
@@ -308,12 +308,12 @@ sed -i 's/ILUVATAR_VISIBLE_DEVICES/ILUVATAR_COREX_VISIBLE_DEVICES/g' \
 
 以下为在本节点（Iluvatar BI-V150 × 8）上经过验证的最终配置：
 
-### `/etc/ix-toolkit/config.json`
+### `/etc/accelerator-toolkit/config.json`
 
 ```json
 {
   "underlyingRuntime": "runc",
-  "hookPath": "/usr/local/bin/ix-container-hook",
+  "hookPath": "/usr/local/bin/accelerator-container-hook",
   "hook": {
     "driverLibraryPaths": ["/usr/local/corex/lib64", "/usr/local/corex/lib"],
     "driverBinaryPaths": ["/usr/local/corex/bin"],

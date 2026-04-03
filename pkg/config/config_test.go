@@ -2,9 +2,12 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
 )
 
 func TestDefaults(t *testing.T) {
@@ -19,57 +22,42 @@ func TestDefaults(t *testing.T) {
 	if cfg.LogLevel != "info" {
 		t.Errorf("LogLevel = %q, want \"info\"", cfg.LogLevel)
 	}
-	if cfg.Hook.DeviceListEnvvar != "ILUVATAR_COREX_VISIBLE_DEVICES" {
-		t.Errorf("DeviceListEnvvar = %q, want \"ILUVATAR_COREX_VISIBLE_DEVICES\"", cfg.Hook.DeviceListEnvvar)
-	}
-	if cfg.Hook.ContainerDriverRoot != "/usr/local/corex" {
-		t.Errorf("ContainerDriverRoot = %q, want \"/usr/local/corex\"", cfg.Hook.ContainerDriverRoot)
-	}
-	if len(cfg.Hook.DriverLibraryPaths) == 0 {
-		t.Error("DriverLibraryPaths should not be empty")
-	}
-	if len(cfg.Hook.DriverBinaryPaths) == 0 {
-		t.Error("DriverBinaryPaths should not be empty")
+	if cfg.Hook.DisableRequire {
+		t.Error("DisableRequire = true, want false")
 	}
 }
 
-func TestLoad_FileNotExist(t *testing.T) {
-	cfg, err := Load("/nonexistent/path/config.json")
-	if err != nil {
-		t.Fatalf("Load with nonexistent file should not error, got: %v", err)
+func TestLoad_RequiresProfile(t *testing.T) {
+	_, err := Load("/nonexistent/path/config.json")
+	if err == nil {
+		t.Fatal("Load should fail when no active profile is available")
 	}
-	// Should return defaults.
-	defaults := Defaults()
-	if cfg.UnderlyingRuntime != defaults.UnderlyingRuntime {
-		t.Errorf("UnderlyingRuntime = %q, want %q", cfg.UnderlyingRuntime, defaults.UnderlyingRuntime)
+	if !errors.Is(err, ErrProfileRequired) {
+		t.Fatalf("Load error = %v, want ErrProfileRequired", err)
 	}
 }
 
-func TestLoad_EmptyPath(t *testing.T) {
-	// DefaultConfigPath (/etc/ix-toolkit/config.json) almost certainly doesn't
-	// exist in the test environment, so Load("") should silently return defaults.
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatalf("Load(\"\") should not error when default config is missing, got: %v", err)
+func TestLoad_EmptyPath_RequiresProfile(t *testing.T) {
+	_, err := Load("")
+	if err == nil {
+		t.Fatal("Load(\"\") should fail when no active profile is available")
 	}
-	if cfg == nil {
-		t.Fatal("Load(\"\") returned nil config")
+	if !errors.Is(err, ErrProfileRequired) {
+		t.Fatalf("Load error = %v, want ErrProfileRequired", err)
 	}
 }
 
 func TestLoad_ValidJSON(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
+	profilePath := filepath.Join("..", "..", "profiles", "iluvatar-bi-v150.yaml")
 
 	input := &Config{
 		UnderlyingRuntime: "crun",
-		HookPath:          "/opt/ix/hook",
+		HookPath:          "/opt/accelerator/hook",
 		LogLevel:          "debug",
 		Hook: HookConfig{
-			DriverLibraryPaths:  []string{"/opt/corex/lib"},
-			DriverBinaryPaths:   []string{"/opt/corex/bin"},
-			ContainerDriverRoot: "/opt/corex",
-			DeviceListEnvvar:    "MY_GPU_DEVICES",
+			DisableRequire: true,
 		},
 	}
 	data, _ := json.Marshal(input)
@@ -77,32 +65,33 @@ func TestLoad_ValidJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(cfgPath)
+	cfg, err := LoadWithProfile(cfgPath, profilePath)
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
 	if cfg.UnderlyingRuntime != "crun" {
 		t.Errorf("UnderlyingRuntime = %q, want \"crun\"", cfg.UnderlyingRuntime)
 	}
-	if cfg.HookPath != "/opt/ix/hook" {
-		t.Errorf("HookPath = %q, want \"/opt/ix/hook\"", cfg.HookPath)
+	if cfg.HookPath != "/opt/accelerator/hook" {
+		t.Errorf("HookPath = %q, want \"/opt/accelerator/hook\"", cfg.HookPath)
 	}
 	if cfg.LogLevel != "debug" {
 		t.Errorf("LogLevel = %q, want \"debug\"", cfg.LogLevel)
 	}
-	if cfg.Hook.DeviceListEnvvar != "MY_GPU_DEVICES" {
-		t.Errorf("DeviceListEnvvar = %q, want \"MY_GPU_DEVICES\"", cfg.Hook.DeviceListEnvvar)
+	if !cfg.Hook.DisableRequire {
+		t.Error("DisableRequire = false, want true")
 	}
 }
 
 func TestLoad_InvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "bad.json")
+	profilePath := filepath.Join("..", "..", "profiles", "iluvatar-bi-v150.yaml")
 	if err := os.WriteFile(cfgPath, []byte("{not valid json"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := Load(cfgPath)
+	_, err := LoadWithProfile(cfgPath, profilePath)
 	if err == nil {
 		t.Error("Load should return error for invalid JSON")
 	}
@@ -111,29 +100,28 @@ func TestLoad_InvalidJSON(t *testing.T) {
 func TestLoad_AppliesDefaultsForEmptyFields(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "partial.json")
+	profilePath := filepath.Join("..", "..", "profiles", "iluvatar-bi-v150.yaml")
 
-	// Write a config with only some fields set; empty fields should get defaults.
+	// Write a config with only some fields set; empty fields should be filled
+	// from the active profile-derived config.
 	partial := `{"logLevel": "warn"}`
 	if err := os.WriteFile(cfgPath, []byte(partial), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(cfgPath)
+	cfg, err := LoadWithProfile(cfgPath, profilePath)
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
 	if cfg.LogLevel != "warn" {
 		t.Errorf("LogLevel = %q, want \"warn\"", cfg.LogLevel)
 	}
-	// These should be filled by applyDefaults.
+	// Generic process defaults are still filled in.
 	if cfg.UnderlyingRuntime != DefaultUnderlyingRuntime {
 		t.Errorf("UnderlyingRuntime = %q, want %q", cfg.UnderlyingRuntime, DefaultUnderlyingRuntime)
 	}
 	if cfg.HookPath != DefaultHookPath {
 		t.Errorf("HookPath = %q, want %q", cfg.HookPath, DefaultHookPath)
-	}
-	if cfg.Hook.DeviceListEnvvar != "ILUVATAR_COREX_VISIBLE_DEVICES" {
-		t.Errorf("DeviceListEnvvar = %q, want \"ILUVATAR_COREX_VISIBLE_DEVICES\"", cfg.Hook.DeviceListEnvvar)
 	}
 }
 
@@ -143,8 +131,7 @@ func TestApplyDefaults_PreservesExistingValues(t *testing.T) {
 		HookPath:          "/my/hook",
 		LogLevel:          "error",
 		Hook: HookConfig{
-			DeviceListEnvvar:    "CUSTOM_ENV",
-			ContainerDriverRoot: "/custom/root",
+			DisableRequire: true,
 		},
 	}
 	cfg.applyDefaults()
@@ -155,10 +142,47 @@ func TestApplyDefaults_PreservesExistingValues(t *testing.T) {
 	if cfg.HookPath != "/my/hook" {
 		t.Errorf("applyDefaults should not overwrite HookPath, got %q", cfg.HookPath)
 	}
-	if cfg.Hook.DeviceListEnvvar != "CUSTOM_ENV" {
-		t.Errorf("applyDefaults should not overwrite DeviceListEnvvar, got %q", cfg.Hook.DeviceListEnvvar)
+	if !cfg.Hook.DisableRequire {
+		t.Error("applyDefaults should preserve DisableRequire=true")
 	}
-	if cfg.Hook.ContainerDriverRoot != "/custom/root" {
-		t.Errorf("applyDefaults should not overwrite ContainerDriverRoot, got %q", cfg.Hook.ContainerDriverRoot)
+}
+
+func TestDefaultsFromProfile(t *testing.T) {
+	p, err := profile.Load(filepath.Join("..", "..", "profiles", "iluvatar-bi-v150.yaml"))
+	if err != nil {
+		t.Fatalf("profile.Load returned error: %v", err)
+	}
+
+	cfg, err := DefaultsFromProfile(p)
+	if err != nil {
+		t.Fatalf("DefaultsFromProfile returned error: %v", err)
+	}
+
+	if cfg.UnderlyingRuntime != "runc" {
+		t.Fatalf("UnderlyingRuntime = %q, want %q", cfg.UnderlyingRuntime, "runc")
+	}
+	if cfg.HookPath != "/usr/local/bin/accelerator-container-hook" {
+		t.Fatalf("HookPath = %q, want %q", cfg.HookPath, "/usr/local/bin/accelerator-container-hook")
+	}
+	if cfg.Hook.DisableRequire {
+		t.Fatal("DisableRequire = true, want false")
+	}
+}
+
+func TestLoadWithProfile_UsesProfileAsBase(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	data := []byte(`{"logLevel":"debug"}`)
+	if err := os.WriteFile(cfgPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadWithProfile(cfgPath, filepath.Join("..", "..", "profiles", "iluvatar-bi-v150.yaml"))
+	if err != nil {
+		t.Fatalf("LoadWithProfile returned error: %v", err)
+	}
+
+	if cfg.LogLevel != "debug" {
+		t.Fatalf("LogLevel = %q, want %q", cfg.LogLevel, "debug")
 	}
 }

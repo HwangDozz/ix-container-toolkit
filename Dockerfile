@@ -8,13 +8,13 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+RUN CGO_ENABLED=0 \
     go build -trimpath -ldflags="-s -w" \
-    -o /out/ix-container-runtime ./cmd/ix-container-runtime && \
+    -o /out/accelerator-container-runtime ./cmd/accelerator-container-runtime && \
     go build -trimpath -ldflags="-s -w" \
-    -o /out/ix-container-hook    ./cmd/ix-container-hook && \
+    -o /out/accelerator-container-hook    ./cmd/accelerator-container-hook && \
     go build -trimpath -ldflags="-s -w" \
-    -o /out/ix-installer         ./cmd/ix-installer
+    -o /out/accelerator-installer         ./cmd/accelerator-installer
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2: Installer image
@@ -22,8 +22,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 # ─────────────────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS installer
 
-COPY --from=builder /out/ix-container-runtime /usr/local/bin/ix-container-runtime
-COPY --from=builder /out/ix-container-hook    /usr/local/bin/ix-container-hook
-COPY --from=builder /out/ix-installer         /usr/local/bin/ix-installer
+COPY --from=builder /out/accelerator-container-runtime /usr/local/bin/accelerator-container-runtime
+COPY --from=builder /out/accelerator-container-hook    /usr/local/bin/accelerator-container-hook
+COPY --from=builder /out/accelerator-installer         /usr/local/bin/accelerator-installer
+COPY profiles /profiles
 
-ENTRYPOINT ["/usr/local/bin/ix-installer"]
+ENTRYPOINT ["/usr/local/bin/accelerator-installer"]

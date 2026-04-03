@@ -3,20 +3,22 @@
 > 更新日期：2026-04-02
 > 目标：说明 `ix-container-toolkit` 从部署到生效的完整链路，包括各组件如何注册、如何交互、每一步凭什么判断已经生效
 
+> 说明：本文中的静态 `deployments/runtimeclass/runtimeclass.yaml` 与 `deployments/daemonset/daemonset.yaml` 现在仅作为 Iluvatar 历史参考。当前主入口是 `profiles/*.yaml` + `accelerator-profile-render` + `make deploy`。
+
 ---
 
 ## 1. 先给结论
 
 这个系统的核心思路不是直接改 Kubernetes，也不是直接改业务镜像，而是在节点侧插入一层自定义 OCI runtime shim：
 
-1. `ix-installer` 把 `ix-container-runtime` 和 `ix-container-hook` 安装到宿主机
-2. `ix-installer` patch 宿主机 `containerd` 配置，向 `containerd` 注册一个新的 runtime handler：`ix`
+1. `accelerator-installer` 把 `accelerator-container-runtime` 和 `accelerator-container-hook` 安装到宿主机
+2. `accelerator-installer` patch 宿主机 `containerd` 配置，向 `containerd` 注册一个新的 runtime handler：`ix`
 3. 用户 Pod 使用 `runtimeClassName: ix`
 4. kubelet 通过 CRI 告诉 `containerd`：这个 Pod 要用 `ix` 这个 runtime handler
-5. `containerd` 创建容器时，实际调用的是 `ix-container-runtime`
-6. `ix-container-runtime` 在 `create` 阶段改写 OCI bundle 的 `config.json`，把 `ix-container-hook` 注入为 `prestart hook`
-7. 底层 `runc` 执行容器创建，在容器进程启动前自动执行 `ix-container-hook`
-8. `ix-container-hook` 读取容器 spec，识别 `ILUVATAR_COREX_VISIBLE_DEVICES`，把设备节点、驱动库、驱动工具和 `ld.so` 配置写进容器 rootfs
+5. `containerd` 创建容器时，实际调用的是 `accelerator-container-runtime`
+6. `accelerator-container-runtime` 在 `create` 阶段改写 OCI bundle 的 `config.json`，把 `accelerator-container-hook` 注入为 `prestart hook`
+7. 底层 `runc` 执行容器创建，在容器进程启动前自动执行 `accelerator-container-hook`
+8. `accelerator-container-hook` 读取容器 spec，识别 `ILUVATAR_COREX_VISIBLE_DEVICES`，把设备节点、驱动库、驱动工具和 `ld.so` 配置写进容器 rootfs
 9. 容器主进程启动，此时容器内部已经能看到 `/dev/iluvatar*`、`/usr/local/corex/lib64`、`/usr/local/corex/bin/ixsmi`
 
 本项目真正的关键点有两个：
@@ -28,15 +30,15 @@
 
 ## 2. 组件和职责
 
-### 2.1 `ix-installer`
+### 2.1 `accelerator-installer`
 
 入口文件：
-[main.go](/home/huangsy/project/ix-container-toolkit/cmd/ix-installer/main.go)
+[main.go](/home/huangsy/project/ix-container-toolkit/cmd/accelerator-installer/main.go)
 
 职责：
 
 - 把二进制复制到宿主机
-- 写宿主机配置文件 `/etc/ix-toolkit/config.json`
+- 写宿主机配置文件 `/etc/accelerator-toolkit/config.json`
 - patch `/etc/containerd/config.toml`
 - 可选重启 `containerd`
 - 给节点打 `iluvatar.ai/gpu=present` 标签
@@ -45,10 +47,10 @@
 
 ---
 
-### 2.2 `ix-container-runtime`
+### 2.2 `accelerator-container-runtime`
 
 入口文件：
-[main.go](/home/huangsy/project/ix-container-toolkit/cmd/ix-container-runtime/main.go)
+[main.go](/home/huangsy/project/ix-container-toolkit/cmd/accelerator-container-runtime/main.go)
 
 核心实现：
 [runtime.go](/home/huangsy/project/ix-container-toolkit/internal/runtime/runtime.go)
@@ -58,16 +60,16 @@
 - 作为 `containerd` 注册的 `BinaryName`
 - 透明代理底层 `runc`
 - 只在 `create` 阶段拦截 OCI bundle
-- 如果容器请求了 GPU，就把 `ix-container-hook` 写进 `config.json` 的 `hooks.prestart`
+- 如果容器请求了 GPU，就把 `accelerator-container-hook` 写进 `config.json` 的 `hooks.prestart`
 
 这一步决定了“hook 有没有机会运行”。
 
 ---
 
-### 2.3 `ix-container-hook`
+### 2.3 `accelerator-container-hook`
 
 入口文件：
-[main.go](/home/huangsy/project/ix-container-toolkit/cmd/ix-container-hook/main.go)
+[main.go](/home/huangsy/project/ix-container-toolkit/cmd/accelerator-container-hook/main.go)
 
 核心实现：
 [hook.go](/home/huangsy/project/ix-container-toolkit/internal/hook/hook.go)
@@ -89,7 +91,13 @@
 
 ### 3.1 DaemonSet 如何把 installer 跑到节点上
 
-部署文件：
+当前推荐入口：
+
+- `go run ./cmd/accelerator-profile-render daemonset --profile profiles/iluvatar-bi-v150.yaml --image <image>`
+- `make render-daemonset PROFILE=profiles/iluvatar-bi-v150.yaml IMAGE=<image>`
+- `make deploy PROFILE=profiles/iluvatar-bi-v150.yaml IMAGE=<image>`
+
+历史参考文件：
 [daemonset.yaml](/home/huangsy/project/ix-container-toolkit/deployments/daemonset/daemonset.yaml)
 
 这个 DaemonSet 的关键点：
@@ -103,7 +111,7 @@
 
 ```yaml
 initContainers:
-  - name: ix-installer
+  - name: accelerator-installer
     securityContext:
       privileged: true
     env:
@@ -112,7 +120,7 @@ initContainers:
       - name: HOST_BIN_DIR
         value: /usr/local/bin
       - name: HOST_CONFIG_DIR
-        value: /etc/ix-toolkit
+        value: /etc/accelerator-toolkit
       - name: RESTART_CONTAINERD
         value: "true"
     volumeMounts:
@@ -133,25 +141,25 @@ initContainers:
 ### 3.2 installer 如何向宿主机注册 runtime
 
 核心代码：
-[main.go](/home/huangsy/project/ix-container-toolkit/cmd/ix-installer/main.go)
+[main.go](/home/huangsy/project/ix-container-toolkit/cmd/accelerator-installer/main.go)
 
 `copyBinaries()` 做的事情：
 
 - 把镜像里的
-  - `/usr/local/bin/ix-container-runtime`
-  - `/usr/local/bin/ix-container-hook`
+  - `/usr/local/bin/accelerator-container-runtime`
+  - `/usr/local/bin/accelerator-container-hook`
 - 复制到宿主机：
-  - `/usr/local/bin/ix-container-runtime`
-  - `/usr/local/bin/ix-container-hook`
+  - `/usr/local/bin/accelerator-container-runtime`
+  - `/usr/local/bin/accelerator-container-hook`
 
 `writeConfig()` 做的事情：
 
-- 生成宿主机 [config.json](/etc/ix-toolkit/config.json)
+- 生成宿主机 [config.json](/etc/accelerator-toolkit/config.json)
 
 这里会写入关键配置：
 
 - `underlyingRuntime: "runc"`
-- `hookPath: "/usr/local/bin/ix-container-hook"`
+- `hookPath: "/usr/local/bin/accelerator-container-hook"`
 - `deviceListEnvvar: "ILUVATAR_COREX_VISIBLE_DEVICES"`
 - `driverLibraryPaths`
 - `driverBinaryPaths`
@@ -165,7 +173,7 @@ initContainers:
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.ix]
   runtime_type = "io.containerd.runc.v2"
   [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.ix.options]
-    BinaryName = "/usr/local/bin/ix-container-runtime"
+    BinaryName = "/usr/local/bin/accelerator-container-runtime"
 ```
 
 这段配置的意义是：
@@ -173,12 +181,12 @@ initContainers:
 - 对 `containerd` 来说，新增了一个 runtime handler，名字叫 `ix`
 - 这个 handler 仍然属于 `io.containerd.runc.v2`
 - 但执行 runtime 时，不再直接调系统默认 `runc`
-- 而是先调 `/usr/local/bin/ix-container-runtime`
+- 而是先调 `/usr/local/bin/accelerator-container-runtime`
 
 也就是说：
 
 - `handler = ix`
-- `BinaryName = /usr/local/bin/ix-container-runtime`
+- `BinaryName = /usr/local/bin/accelerator-container-runtime`
 
 这两个配置把 Kubernetes 的 `RuntimeClass` 和宿主机上的 runtime 二进制接起来了。
 
@@ -216,7 +224,12 @@ no runtime for "ix" is configured
 
 ### 4.1 `RuntimeClass` 如何工作
 
-定义文件：
+当前推荐入口：
+
+- `go run ./cmd/accelerator-profile-render runtimeclass --profile profiles/iluvatar-bi-v150.yaml`
+- `make render-runtimeclass PROFILE=profiles/iluvatar-bi-v150.yaml`
+
+历史参考文件：
 [runtimeclass.yaml](/home/huangsy/project/ix-container-toolkit/deployments/runtimeclass/runtimeclass.yaml)
 
 核心内容：
@@ -246,7 +259,7 @@ spec:
 
 ---
 
-### 4.2 业务 Pod 如何走到 `ix-container-runtime`
+### 4.2 业务 Pod 如何走到 `accelerator-container-runtime`
 
 当 Pod 指定：
 
@@ -262,11 +275,11 @@ spec:
 如果 `containerd` 已加载前面的配置，它就会选择：
 
 - `runtime_type = io.containerd.runc.v2`
-- `BinaryName = /usr/local/bin/ix-container-runtime`
+- `BinaryName = /usr/local/bin/accelerator-container-runtime`
 
 因此这次创建容器时，不会直接跑系统 `runc`，而是先跑：
 
-- `/usr/local/bin/ix-container-runtime`
+- `/usr/local/bin/accelerator-container-runtime`
 
 这一步的凭据：
 
@@ -274,25 +287,25 @@ spec:
 - Pod describe 中 `Runtime Class Name: ix`
 - `crictl inspectp` 中能看到：
   - `runtimeHandler: "ix"`
-  - `runtimeOptions.binary_name: "/usr/local/bin/ix-container-runtime"`
+  - `runtimeOptions.binary_name: "/usr/local/bin/accelerator-container-runtime"`
 
 这三条一起才能证明：
 
 - 不是 YAML 写了 `runtimeClassName` 就算成功
-- 而是 kubelet 和 `containerd` 的实际调用路径已经切到了 `ix-container-runtime`
+- 而是 kubelet 和 `containerd` 的实际调用路径已经切到了 `accelerator-container-runtime`
 
 ---
 
 ## 5. runtime 是如何识别容器并注入 hook 的
 
-### 5.1 `ix-container-runtime` 的启动方式
+### 5.1 `accelerator-container-runtime` 的启动方式
 
 入口：
-[main.go](/home/huangsy/project/ix-container-toolkit/cmd/ix-container-runtime/main.go)
+[main.go](/home/huangsy/project/ix-container-toolkit/cmd/accelerator-container-runtime/main.go)
 
 它启动时会：
 
-1. 从 `IX_CONFIG_FILE` 或默认路径加载 [config.json](/etc/ix-toolkit/config.json)
+1. 从 `ACCELERATOR_CONFIG_FILE` 或默认路径加载 [config.json](/etc/accelerator-toolkit/config.json)
 2. 创建 logger
 3. 调 `rt.Exec(os.Args)`
 
@@ -369,7 +382,7 @@ specs.Hook{
 
 当前默认 `HookPath` 是：
 
-- `/usr/local/bin/ix-container-hook`
+- `/usr/local/bin/accelerator-container-hook`
 
 写回后，bundle 的 `config.json` 就变成了：
 
@@ -393,18 +406,18 @@ specs.Hook{
 
 - `parsed runtime arguments`
 - `intercepting container create`
-- `injected ix-container-hook as prestart hook`
+- `injected accelerator-container-hook as prestart hook`
 
 这说明：
 
-- `containerd` 确实调用了 `ix-container-runtime`
+- `containerd` 确实调用了 `accelerator-container-runtime`
 - 它确实看到了 `create --bundle ...`
 - 它确实把 hook 写进了 OCI spec
 
 第二类：运行中的 OCI spec  
 如果查看业务容器对应 bundle 的 `config.json`，可以看到 `hooks.prestart` 包含：
 
-- `/usr/local/bin/ix-container-hook`
+- `/usr/local/bin/accelerator-container-hook`
 
 这说明 hook 不是理论上会运行，而是已经被明确写入容器创建流程。
 
@@ -422,7 +435,7 @@ hook 不需要向 `containerd` 单独注册。
 
 只要 `runc` 读取到的 `config.json` 含有：
 
-- `hooks.prestart[].path = /usr/local/bin/ix-container-hook`
+- `hooks.prestart[].path = /usr/local/bin/accelerator-container-hook`
 
 它就会在容器主进程启动前执行这个二进制，并把 OCI container state JSON 通过 stdin 传给它。
 
@@ -437,11 +450,11 @@ hook 不需要向 `containerd` 单独注册。
 ### 6.2 hook 启动后第一件事做什么
 
 入口：
-[main.go](/home/huangsy/project/ix-container-toolkit/cmd/ix-container-hook/main.go)
+[main.go](/home/huangsy/project/ix-container-toolkit/cmd/accelerator-container-hook/main.go)
 
 它启动后会：
 
-1. 加载 [config.json](/etc/ix-toolkit/config.json)
+1. 加载 [config.json](/etc/accelerator-toolkit/config.json)
 2. 创建 logger
 3. 执行 `h.Run(os.Stdin)`
 
@@ -644,7 +657,7 @@ symlink：
 
 因此 hook 还会写：
 
-- `/etc/ld.so.conf.d/ix-toolkit.conf`
+- `/etc/ld.so.conf.d/accelerator-toolkit.conf`
 
 内容是：
 
@@ -671,13 +684,13 @@ symlink：
 ### 9.1 部署层证据
 
 - 宿主机有：
-  - `/usr/local/bin/ix-container-runtime`
-  - `/usr/local/bin/ix-container-hook`
+  - `/usr/local/bin/accelerator-container-runtime`
+  - `/usr/local/bin/accelerator-container-hook`
 - 宿主机有：
-  - [config.json](/etc/ix-toolkit/config.json)
+  - [config.json](/etc/accelerator-toolkit/config.json)
 - 宿主机 `containerd` 配置有：
   - `runtimes.ix`
-  - `BinaryName = "/usr/local/bin/ix-container-runtime"`
+  - `BinaryName = "/usr/local/bin/accelerator-container-runtime"`
 
 这说明节点侧安装已经完成。
 
@@ -689,9 +702,9 @@ symlink：
 - 验证 Pod 指定了 `runtimeClassName: ix`
 - `crictl inspectp` 里能看到：
   - `runtimeHandler: "ix"`
-  - `runtimeOptions.binary_name: "/usr/local/bin/ix-container-runtime"`
+  - `runtimeOptions.binary_name: "/usr/local/bin/accelerator-container-runtime"`
 
-这说明 kubelet 和 `containerd` 的调用链已经切换到了 `ix-container-runtime`。
+这说明 kubelet 和 `containerd` 的调用链已经切换到了 `accelerator-container-runtime`。
 
 ---
 
@@ -700,7 +713,7 @@ symlink：
 宿主机日志出现：
 
 - `intercepting container create`
-- `injected ix-container-hook as prestart hook`
+- `injected accelerator-container-hook as prestart hook`
 
 这说明 runtime 已成功修改 OCI spec。
 
@@ -730,7 +743,7 @@ symlink：
 - `/usr/local/corex/lib64/libixml.so`
 - `/usr/local/corex/lib64/libixthunk.so`
 - `/usr/local/corex/bin/ixsmi`
-- `/etc/ld.so.conf.d/ix-toolkit.conf`
+- `/etc/ld.so.conf.d/accelerator-toolkit.conf`
 
 并且这些文件不是空占位，而是有真实大小，例如：
 
@@ -767,7 +780,7 @@ Pod 能跑起来，只能说明：
 
 - OCI spec 有 `prestart hook`
 - 宿主机日志有 `hook invoked`
-- 容器里出现 `/usr/local/corex`、`ixsmi`、`ld.so.conf.d/ix-toolkit.conf`
+- 容器里出现 `/usr/local/corex`、`ixsmi`、`ld.so.conf.d/accelerator-toolkit.conf`
 
 ---
 
@@ -819,11 +832,11 @@ Pod 能跑起来，只能说明：
 
 1. [daemonset.yaml](/home/huangsy/project/ix-container-toolkit/deployments/daemonset/daemonset.yaml)
 2. [runtimeclass.yaml](/home/huangsy/project/ix-container-toolkit/deployments/runtimeclass/runtimeclass.yaml)
-3. [main.go](/home/huangsy/project/ix-container-toolkit/cmd/ix-installer/main.go)
+3. [main.go](/home/huangsy/project/ix-container-toolkit/cmd/accelerator-installer/main.go)
 4. [config.go](/home/huangsy/project/ix-container-toolkit/pkg/config/config.go)
-5. [main.go](/home/huangsy/project/ix-container-toolkit/cmd/ix-container-runtime/main.go)
+5. [main.go](/home/huangsy/project/ix-container-toolkit/cmd/accelerator-container-runtime/main.go)
 6. [runtime.go](/home/huangsy/project/ix-container-toolkit/internal/runtime/runtime.go)
-7. [main.go](/home/huangsy/project/ix-container-toolkit/cmd/ix-container-hook/main.go)
+7. [main.go](/home/huangsy/project/ix-container-toolkit/cmd/accelerator-container-hook/main.go)
 8. [hook.go](/home/huangsy/project/ix-container-toolkit/internal/hook/hook.go)
 9. [device.go](/home/huangsy/project/ix-container-toolkit/pkg/device/device.go)
 10. [mount_linux.go](/home/huangsy/project/ix-container-toolkit/internal/hook/mount_linux.go)
@@ -838,6 +851,6 @@ Pod 能跑起来，只能说明：
 
 这套系统的生效机制可以压缩成一句话：
 
-`RuntimeClass` 负责把容器创建请求导向 `ix-container-runtime`，`ix-container-runtime` 负责把 `ix-container-hook` 写进 OCI spec，`ix-container-hook` 负责把 GPU 设备和驱动文件准备进容器 rootfs，最终让业务容器在不改镜像的前提下获得天数 GPU 能力。
+`RuntimeClass` 负责把容器创建请求导向 `accelerator-container-runtime`，`accelerator-container-runtime` 负责把 `accelerator-container-hook` 写进 OCI spec，`accelerator-container-hook` 负责把 GPU 设备和驱动文件准备进容器 rootfs，最终让业务容器在不改镜像的前提下获得天数 GPU 能力。
 
 本次联调已经证明这条链路在真实节点上是可以跑通的，且每一层都已经拿到了对应的代码依据和运行时证据。
