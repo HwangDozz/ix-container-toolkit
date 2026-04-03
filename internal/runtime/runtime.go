@@ -36,13 +36,22 @@ func New(cfg *config.Config, log *logrus.Logger) *Runtime {
 // and acts as a drop-in replacement for runc.
 func (r *Runtime) Exec(args []string) error {
 	if len(args) < 2 {
+		r.log.WithField("argv", args).Debug("runtime invoked without subcommand")
 		return r.delegate(args)
 	}
 
 	// Find the "create" sub-command and the bundle path.
 	cmd, bundlePath := parseArgs(args[1:])
+	r.log.WithFields(logrus.Fields{
+		"argv":   args,
+		"cmd":    cmd,
+		"bundle": bundlePath,
+	}).Debug("parsed runtime arguments")
 
 	if cmd != "create" || bundlePath == "" {
+		if cmd == "create" && bundlePath == "" {
+			r.log.WithField("argv", args).Warn("create command detected without bundle path; skipping hook injection")
+		}
 		// For everything other than "create", pass through unchanged.
 		return r.delegate(args)
 	}
@@ -145,7 +154,16 @@ func (r *Runtime) delegate(args []string) error {
 // parseArgs extracts the sub-command and --bundle flag value from argv
 // (without argv[0]).
 func parseArgs(argv []string) (cmd, bundle string) {
+	skipNext := false
 	for i, arg := range argv {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if arg == "--root" || arg == "-root" || arg == "--log" || arg == "--log-format" {
+			skipNext = true
+			continue
+		}
 		if !strings.HasPrefix(arg, "-") && cmd == "" {
 			cmd = arg
 			continue
@@ -154,10 +172,16 @@ func parseArgs(argv []string) (cmd, bundle string) {
 			if i+1 < len(argv) {
 				bundle = argv[i+1]
 			}
+		} else if arg == "-b" {
+			if i+1 < len(argv) {
+				bundle = argv[i+1]
+			}
 		} else if strings.HasPrefix(arg, "--bundle=") {
 			bundle = strings.TrimPrefix(arg, "--bundle=")
 		} else if strings.HasPrefix(arg, "-bundle=") {
 			bundle = strings.TrimPrefix(arg, "-bundle=")
+		} else if strings.HasPrefix(arg, "-b=") {
+			bundle = strings.TrimPrefix(arg, "-b=")
 		}
 	}
 	return

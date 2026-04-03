@@ -151,6 +151,48 @@ func TestInjectLdSoConf_EmptyDriverPaths(t *testing.T) {
 	}
 }
 
+func TestUniquePreserveOrder_RemovesDuplicates(t *testing.T) {
+	in := []string{"/usr/local/corex-4.3.0/lib64", "/usr/local/corex-4.3.0/lib64", "/usr/local/corex-4.3.0/bin"}
+	got := uniquePreserveOrder(in)
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2", len(got))
+	}
+	if got[0] != "/usr/local/corex-4.3.0/lib64" {
+		t.Fatalf("got[0] = %q", got[0])
+	}
+	if got[1] != "/usr/local/corex-4.3.0/bin" {
+		t.Fatalf("got[1] = %q", got[1])
+	}
+}
+
+func TestEnsureLibrarySymlink_CreatesAlias(t *testing.T) {
+	rootfs := t.TempDir()
+	hostRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(hostRoot, "lib64"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("lib64", filepath.Join(hostRoot, "lib")); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultCfg()
+	cfg.Hook.ContainerDriverRoot = hostRoot
+	h := testHook(cfg)
+
+	if err := h.ensureLibrarySymlink(rootfs, hostRoot); err != nil {
+		t.Fatalf("ensureLibrarySymlink returned error: %v", err)
+	}
+
+	linkPath := filepath.Join(rootfs, hostRoot, "lib")
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("expected symlink at %s: %v", linkPath, err)
+	}
+	if target != "lib64" {
+		t.Fatalf("symlink target = %q, want %q", target, "lib64")
+	}
+}
+
 // ----- Run: none value skips without error -----
 
 func TestRun_NoneValue_Skips(t *testing.T) {

@@ -164,6 +164,9 @@ func (h *Hook) resolveDriverPaths() {
 			h.cfg.Hook.DriverBinaryPaths[i] = resolved
 		}
 	}
+
+	h.cfg.Hook.DriverLibraryPaths = uniquePreserveOrder(h.cfg.Hook.DriverLibraryPaths)
+	h.cfg.Hook.DriverBinaryPaths = uniquePreserveOrder(h.cfg.Hook.DriverBinaryPaths)
 }
 
 // injectDevices bind-mounts Iluvatar device nodes into the container.
@@ -224,6 +227,10 @@ func (h *Hook) injectDriverLibraries(rootfs string) error {
 
 	// Add an ld.so.conf.d entry so that the dynamic linker inside the container
 	// discovers the freshly mounted libraries.
+	if err := h.ensureLibrarySymlink(rootfs, containerRoot); err != nil {
+		h.log.WithError(err).Warn("failed to create library symlink (non-fatal)")
+	}
+
 	if err := h.injectLdSoConf(rootfs, containerRoot); err != nil {
 		h.log.WithError(err).Warn("failed to inject ld.so.conf.d entry (non-fatal)")
 	}
@@ -284,11 +291,26 @@ func (h *Hook) mountSharedLibraries(hostDir, targetDir string) error {
 
 		src := filepath.Join(hostDir, name)
 		dst := filepath.Join(targetDir, name)
-		if err := ensureFile(dst); err != nil {
-			return fmt.Errorf("creating placeholder for %s: %w", dst, err)
+
+		info, err := os.Lstat(src)
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", src, err)
 		}
-		if err := bindMount(src, dst); err != nil {
-			return fmt.Errorf("bind-mounting library %s: %w", src, err)
+		if info.Mode()&os.ModeSymlink != 0 {
+			linkTarget, err := os.Readlink(src)
+			if err != nil {
+				return fmt.Errorf("readlink %s: %w", src, err)
+			}
+			if err := os.RemoveAll(dst); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			if err := os.Symlink(linkTarget, dst); err != nil {
+				return fmt.Errorf("symlink %s -> %s: %w", dst, linkTarget, err)
+			}
+		} else {
+			if err := copyFile(src, dst, info.Mode().Perm()); err != nil {
+				return fmt.Errorf("copying library %s: %w", src, err)
+			}
 		}
 		mounted++
 	}
@@ -328,11 +350,122 @@ func (h *Hook) injectDriverBinaries(rootfs string) error {
 		if err := os.MkdirAll(target, 0755); err != nil {
 			return fmt.Errorf("creating bin dir %s: %w", target, err)
 		}
-		if err := bindMount(hostPath, target); err != nil {
-			return fmt.Errorf("bind-mounting bin dir %s: %w", hostPath, err)
+		if err := h.mountDriverBinaries(hostPath, target); err != nil {
+			return fmt.Errorf("mounting driver binaries from %s: %w", hostPath, err)
 		}
 		h.log.WithField("path", hostPath).Debug("driver binary dir injected")
 	}
+	return nil
+}
+
+func (h *Hook) ensureLibrarySymlink(rootfs, containerRoot string) error {
+	hostLib := filepath.Join(containerRoot, "lib")
+	info, err := os.Lstat(hostLib)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+
+	target, err := os.Readlink(hostLib)
+	if err != nil {
+		return err
+	}
+
+	containerLib := filepath.Join(rootfs, containerRoot, "lib")
+	if err := os.MkdirAll(filepath.Dir(containerLib), 0755); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(containerLib); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Symlink(target, containerLib)
+}
+
+func (h *Hook) mountDriverBinaries(hostDir, targetDir string) error {
+	entries, err := os.ReadDir(hostDir)
+	if err != nil {
+		return fmt.Errorf("reading directory %s: %w", hostDir, err)
+	}
+
+	for _, entry := range entries {
+		name := entry.Name()
+		src := filepath.Join(hostDir, name)
+		dst := filepath.Join(targetDir, name)
+
+		info, err := os.Lstat(src)
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", src, err)
+		}
+
+		switch mode := info.Mode(); {
+		case mode&os.ModeSymlink != 0:
+			linkTarget, err := os.Readlink(src)
+			if err != nil {
+				return fmt.Errorf("readlink %s: %w", src, err)
+			}
+			if err := os.RemoveAll(dst); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			if err := os.Symlink(linkTarget, dst); err != nil {
+				return fmt.Errorf("symlink %s -> %s: %w", dst, linkTarget, err)
+			}
+		case entry.IsDir():
+			if err := os.MkdirAll(dst, 0755); err != nil {
+				return fmt.Errorf("creating bin subdir %s: %w", dst, err)
+			}
+			if err := copyDir(src, dst); err != nil {
+				return fmt.Errorf("copying bin subdir %s: %w", src, err)
+			}
+		default:
+			if err := copyFile(src, dst, info.Mode().Perm()); err != nil {
+				return fmt.Errorf("copying binary %s: %w", src, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func copyDir(srcDir, dstDir string) error {
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		src := filepath.Join(srcDir, entry.Name())
+		dst := filepath.Join(dstDir, entry.Name())
+
+		info, err := os.Lstat(src)
+		if err != nil {
+			return err
+		}
+
+		switch mode := info.Mode(); {
+		case mode&os.ModeSymlink != 0:
+			linkTarget, err := os.Readlink(src)
+			if err != nil {
+				return err
+			}
+			if err := os.RemoveAll(dst); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			if err := os.Symlink(linkTarget, dst); err != nil {
+				return err
+			}
+		case entry.IsDir():
+			if err := os.MkdirAll(dst, 0755); err != nil {
+				return err
+			}
+			if err := copyDir(src, dst); err != nil {
+				return err
+			}
+		default:
+			if err := copyFile(src, dst, info.Mode().Perm()); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -385,4 +518,17 @@ func loadSpec(bundle string) (*specs.Spec, error) {
 		return nil, fmt.Errorf("parsing %s: %w", specPath, err)
 	}
 	return &spec, nil
+}
+
+func uniquePreserveOrder(paths []string) []string {
+	seen := make(map[string]struct{}, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out
 }

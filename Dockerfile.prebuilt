@@ -1,0 +1,11 @@
+# Runtime-only image build.
+# Expects prebuilt Linux/amd64 binaries in ./bin and does not run `go build`
+# or `go mod download` inside Docker.
+
+FROM debian:bookworm-slim AS installer
+
+COPY bin/ix-container-runtime /usr/local/bin/ix-container-runtime
+COPY bin/ix-container-hook /usr/local/bin/ix-container-hook
+COPY bin/ix-installer /usr/local/bin/ix-installer
+
+ENTRYPOINT ["/usr/local/bin/ix-installer"]

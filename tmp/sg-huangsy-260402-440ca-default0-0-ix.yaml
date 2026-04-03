@@ -1,0 +1,140 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sg-huangsy-260402-440ca-default0-0-ix
+  namespace: crater-workspace
+  annotations:
+    crater.raids.io/task-name: test with ubuntu image
+    crater.raids.io/user: huangsy
+    volcano.sh/queue-name: q-a19-u3
+  labels:
+    crater.raids.io/task-account: q-19
+    crater.raids.io/task-type: custom
+    crater.raids.io/task-user: huangsy
+spec:
+  runtimeClassName: ix
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - preference:
+            matchExpressions:
+              - key: nvidia.com/gpu.present
+                operator: DoesNotExist
+              - key: feature.node.kubernetes.io/pci-15b3.present
+                operator: DoesNotExist
+          weight: 40
+  containers:
+    - name: custom
+      image: crater-harbor.act.buaa.edu.cn/library/ubuntu:22.04
+      imagePullPolicy: IfNotPresent
+      command:
+        - bash
+        - -c
+        - sleep infinity;
+      env:
+        - name: NB_USER
+          value: huangsy
+        - name: NB_GID
+          value: "1001"
+        - name: NB_UID
+          value: "1001"
+        - name: VC_DEFAULT0_HOSTS
+          valueFrom:
+            configMapKeyRef:
+              key: VC_DEFAULT0_HOSTS
+              name: sg-huangsy-260402-440ca-svc
+        - name: VC_DEFAULT0_NUM
+          valueFrom:
+            configMapKeyRef:
+              key: VC_DEFAULT0_NUM
+              name: sg-huangsy-260402-440ca-svc
+      resources:
+        limits:
+          cpu: 4001m
+          iluvatar.com/gpu: "2"
+          memory: 8193Mi
+        requests:
+          cpu: "4"
+          iluvatar.com/gpu: "2"
+          memory: 8Gi
+      resizePolicy:
+        - resourceName: cpu
+          restartPolicy: NotRequired
+        - resourceName: memory
+          restartPolicy: NotRequired
+      securityContext:
+        capabilities:
+          add:
+            - IPC_LOCK
+        runAsGroup: 0
+        runAsUser: 0
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      volumeMounts:
+        - mountPath: /dev/shm
+          name: crater-cache
+        - mountPath: /crater-start.sh
+          name: start-bash-script-volume
+          readOnly: true
+          subPath: start.sh
+        - mountPath: /etc/volcano
+          name: sg-huangsy-260402-440ca-svc
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: kube-api-access
+          readOnly: true
+      workingDir: /home/huangsy
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: false
+  hostname: sg-huangsy-260402-440ca-default0-0-ix
+  nodeName: inspur-01
+  preemptionPolicy: PreemptLowerPriority
+  priority: 0
+  restartPolicy: Never
+  schedulerName: volcano
+  securityContext: {}
+  serviceAccountName: default
+  subdomain: sg-huangsy-260402-440ca
+  terminationGracePeriodSeconds: 30
+  tolerations:
+    - effect: NoSchedule
+      key: crater.raids.io/account
+      operator: Equal
+      value: q-19
+    - effect: NoExecute
+      key: node.kubernetes.io/not-ready
+      operator: Exists
+      tolerationSeconds: 300
+    - effect: NoExecute
+      key: node.kubernetes.io/unreachable
+      operator: Exists
+      tolerationSeconds: 300
+  volumes:
+    - name: crater-cache
+      emptyDir:
+        medium: Memory
+    - name: start-bash-script-volume
+      configMap:
+        defaultMode: 493
+        name: custom-start-configmap
+    - name: sg-huangsy-260402-440ca-svc
+      configMap:
+        defaultMode: 420
+        name: sg-huangsy-260402-440ca-svc
+    - name: kube-api-access
+      projected:
+        defaultMode: 420
+        sources:
+          - serviceAccountToken:
+              expirationSeconds: 3607
+              path: token
+          - configMap:
+              items:
+                - key: ca.crt
+                  path: ca.crt
+              name: kube-root-ca.crt
+          - downwardAPI:
+              items:
+                - fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+                  path: namespace

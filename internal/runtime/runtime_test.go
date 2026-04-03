@@ -65,6 +65,26 @@ func TestParseArgs_CreateWithShortBundleEquals(t *testing.T) {
 	}
 }
 
+func TestParseArgs_CreateWithShortBFlag(t *testing.T) {
+	cmd, bundle := parseArgs([]string{"create", "-b", "/path/to/bundle"})
+	if cmd != "create" {
+		t.Errorf("cmd = %q, want \"create\"", cmd)
+	}
+	if bundle != "/path/to/bundle" {
+		t.Errorf("bundle = %q, want \"/path/to/bundle\"", bundle)
+	}
+}
+
+func TestParseArgs_CreateWithShortBEquals(t *testing.T) {
+	cmd, bundle := parseArgs([]string{"create", "-b=/path"})
+	if cmd != "create" {
+		t.Errorf("cmd = %q, want \"create\"", cmd)
+	}
+	if bundle != "/path" {
+		t.Errorf("bundle = %q, want \"/path\"", bundle)
+	}
+}
+
 func TestParseArgs_StartCommand(t *testing.T) {
 	cmd, bundle := parseArgs([]string{"start", "container-id"})
 	if cmd != "start" {
@@ -98,6 +118,23 @@ func TestParseArgs_NoSubCommand(t *testing.T) {
 func TestParseArgs_FlagsBeforeCommand(t *testing.T) {
 	// Global flags before the sub-command: first non-flag arg is the command.
 	cmd, bundle := parseArgs([]string{"--root=/run/runc", "create", "--bundle=/b"})
+	if cmd != "create" {
+		t.Errorf("cmd = %q, want \"create\"", cmd)
+	}
+	if bundle != "/b" {
+		t.Errorf("bundle = %q, want \"/b\"", bundle)
+	}
+}
+
+func TestParseArgs_FlagsBeforeCommandWithSeparateValues(t *testing.T) {
+	cmd, bundle := parseArgs([]string{
+		"--root", "/run/containerd/runc/k8s.io",
+		"--log", "/tmp/log.json",
+		"--log-format", "json",
+		"create",
+		"--bundle", "/b",
+		"container-id",
+	})
 	if cmd != "create" {
 		t.Errorf("cmd = %q, want \"create\"", cmd)
 	}

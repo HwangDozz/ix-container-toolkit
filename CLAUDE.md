@@ -18,7 +18,7 @@
 ## 项目信息
 
 - **模块名**：`github.com/ix-toolkit/ix-toolkit`
-- **语言**：Go 1.22+
+- **语言**：Go 1.26.1+
 - **目标平台**：Linux/amd64
 - **主要组件**：
   - `ix-container-hook`：OCI prestart hook

@@ -29,3 +29,7 @@ func ensureFile(path string) error {
 func runLdconfig(_ string) error {
 	return nil // no-op on non-Linux
 }
+
+func copyFile(src, dst string, _ os.FileMode) error {
+	return fmt.Errorf("copying files not supported on this platform (src=%s, dst=%s)", src, dst)
+}

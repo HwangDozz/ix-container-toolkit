@@ -12,8 +12,9 @@ metadata:
   name: ix
 handler: ix
 scheduling:
-  nodeClassification:
-    tolerations:
-      - key: iluvatar.ai/gpu
-        operator: Exists
-        effect: NoSchedule
+  nodeSelector:
+    iluvatar.ai/gpu: "present"
+  tolerations:
+    - key: iluvatar.ai/gpu
+      operator: Exists
+      effect: NoSchedule

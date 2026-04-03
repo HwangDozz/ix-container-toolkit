@@ -6,7 +6,7 @@ GOOS   ?= linux
 GOARCH ?= amd64
 LDFLAGS := -s -w
 
-.PHONY: all build test docker-build docker-push deploy undeploy clean
+.PHONY: all build test docker-build docker-push docker-build-prebuilt docker-push-prebuilt deploy undeploy clean
 
 all: build
 
@@ -32,6 +32,17 @@ docker-build:
 
 ## Push the installer image to the registry
 docker-push: docker-build
+	docker push $(IMAGE)
+
+## Build the installer image from locally prebuilt binaries in ./bin
+docker-build-prebuilt:
+	test -x bin/ix-container-runtime
+	test -x bin/ix-container-hook
+	test -x bin/ix-installer
+	docker build -f Dockerfile.prebuilt -t $(IMAGE) .
+
+## Push the prebuilt-binary installer image to the registry
+docker-push-prebuilt: docker-build-prebuilt
 	docker push $(IMAGE)
 
 ## Deploy ix-toolkit to the current Kubernetes cluster.
