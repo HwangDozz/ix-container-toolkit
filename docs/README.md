@@ -12,16 +12,19 @@
 2. [项目状态文档](/home/huangsy/project/ix-container-toolkit/docs/project-status.md)  
    汇总当前实现范围、组件职责、工作流程和已知风险。
 
-3. [全链路机制说明](/home/huangsy/project/ix-container-toolkit/docs/end-to-end-runtime-hook-chain.md)  
+3. [通用化改造计划](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-plan.md)  
+   描述项目从 Iluvatar 专用实现演进为 YAML profile 驱动通用框架的阶段目标、优先级和后续调研计划。
+
+4. [全链路机制说明](/home/huangsy/project/ix-container-toolkit/docs/end-to-end-runtime-hook-chain.md)  
    解释 `RuntimeClass -> containerd -> ix-container-runtime -> ix-container-hook -> 容器 rootfs` 是如何逐层生效的，以及每一步的运行时凭据。
 
-4. [RuntimeClass 与 Hook 联调验证报告](/home/huangsy/project/ix-container-toolkit/docs/runtime-hook-validation.md)  
+5. [RuntimeClass 与 Hook 联调验证报告](/home/huangsy/project/ix-container-toolkit/docs/runtime-hook-validation.md)  
    记录本次真实联调过程、遇到的问题、修复的 bug 和最终验证结果。
 
-5. [物理节点验证报告](/home/huangsy/project/ix-container-toolkit/docs/physical-node-validation.md)  
+6. [物理节点验证报告](/home/huangsy/project/ix-container-toolkit/docs/physical-node-validation.md)  
    记录宿主机 `/dev/iluvatar*`、`/usr/local/corex`、`ixsmi` 等真实环境信息，用于校正代码假设。
 
-6. [真实 Pod 分析](/home/huangsy/project/ix-container-toolkit/docs/pod-analysis.md)  
+7. [真实 Pod 分析](/home/huangsy/project/ix-container-toolkit/docs/pod-analysis.md)  
    记录对线上真实 GPU Pod 的 YAML 和 Device Plugin 行为分析，重点解释为什么要兼容 `ILUVATAR_COREX_VISIBLE_DEVICES` 和 UUID。
 
 ## 按用途查找
@@ -30,6 +33,7 @@
 
 - [项目入口说明](/home/huangsy/project/ix-container-toolkit/README.md)
 - [项目状态文档](/home/huangsy/project/ix-container-toolkit/docs/project-status.md)
+- [通用化改造计划](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-plan.md)
 
 ### 真实环境依据
 
