@@ -239,8 +239,7 @@
 - `runtime.underlyingRuntime`: `runc`
 - `runtime.hookStage`: `prestart`
 - `runtime.hookBinary`: `/usr/local/bin/accelerator-container-hook`
-- `runtime.handlerName`: `ascend-910b`
-- `runtime.runtimeClassName`: `ascend-910b`
+- `RuntimeClass` / handler：统一为 `xpu-runtime`
 - `kubernetes.resourceNames`: `["huawei.com/Ascend910"]`
 - `kubernetes.nodeLabels`: `{"accelerator":"huawei-Ascend910"}`
 - `kubernetes.runtimeClassScheduling.nodeSelector`: `{"accelerator":"huawei-Ascend910"}`

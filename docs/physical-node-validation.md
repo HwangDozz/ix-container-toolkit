@@ -194,7 +194,7 @@ cmd.Env = append(os.Environ(),
 
 ### 问题三（P0）：缺少 RuntimeClass 资源
 
-**根本原因：** Pod 需要通过 `runtimeClassName: ix` 指定使用 `accelerator-container-runtime`，但集群中没有对应的 `RuntimeClass` 资源，`kubectl apply` 后 Pod 会因找不到 runtime class 而无法调度。
+**根本原因：** Pod 需要通过 `runtimeClassName: xpu-runtime` 指定使用 `accelerator-container-runtime`，但集群中没有对应的 `RuntimeClass` 资源，`kubectl apply` 后 Pod 会因找不到 runtime class 而无法调度。
 
 **修复位置：** 新增 `deployments/runtimeclass/runtimeclass.yaml`，更新 `Makefile` 的 `deploy`/`undeploy` target。
 
@@ -204,8 +204,8 @@ cmd.Env = append(os.Environ(),
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata:
-  name: ix
-handler: ix  # 对应 containerd config.toml 中注册的 runtime 名称
+  name: xpu-runtime
+handler: xpu-runtime  # 对应 containerd config.toml 中注册的统一 runtime 名称
 ```
 
 ---

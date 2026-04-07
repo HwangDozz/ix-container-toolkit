@@ -18,9 +18,6 @@ func TestLoad_ValidProfile(t *testing.T) {
 	if p.Metadata.Name != "iluvatar-bi-v150" {
 		t.Fatalf("Metadata.Name = %q, want %q", p.Metadata.Name, "iluvatar-bi-v150")
 	}
-	if p.Runtime.HandlerName != "iluvatar-bi-v150" {
-		t.Fatalf("Runtime.HandlerName = %q, want %q", p.Runtime.HandlerName, "iluvatar-bi-v150")
-	}
 	if got := p.Device.SelectorEnvVars[0]; got != "ILUVATAR_COREX_VISIBLE_DEVICES" {
 		t.Fatalf("Device.SelectorEnvVars[0] = %q, want %q", got, "ILUVATAR_COREX_VISIBLE_DEVICES")
 	}
@@ -54,11 +51,11 @@ func TestLoad_Ascend910BProfile(t *testing.T) {
 func TestLoad_RejectsInvalidProfile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.yaml")
-	content := `
+content := `
 metadata:
   name: bad
 runtime:
-  handlerName: test-handler
+  underlyingRuntime: runc
 `
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -82,8 +79,6 @@ metadata:
   vendor: vendor
   version: v1alpha1
 runtime:
-  handlerName: vendor-runtime
-  runtimeClassName: vendor-runtime
   underlyingRuntime: runc
   hookStage: prestart
   hookBinary: /usr/local/bin/accelerator-container-hook
@@ -140,8 +135,6 @@ func TestValidate_RejectsInvalidArtifactMode(t *testing.T) {
 			Version: "v1alpha1",
 		},
 		Runtime: Runtime{
-			HandlerName:       "vendor-runtime",
-			RuntimeClassName:  "vendor-runtime",
 			UnderlyingRuntime: "runc",
 			HookStage:         HookStagePrestart,
 			HookBinary:        "/usr/local/bin/hook",
@@ -197,8 +190,6 @@ func TestValidate_AllowsIndexOnlyProfileWithoutMappingCommand(t *testing.T) {
 			Version: "v1alpha1",
 		},
 		Runtime: Runtime{
-			HandlerName:       "ascend-910b",
-			RuntimeClassName:  "ascend-910b",
 			UnderlyingRuntime: "runc",
 			HookStage:         HookStagePrestart,
 			HookBinary:        "/usr/local/bin/accelerator-container-hook",
@@ -253,14 +244,14 @@ func TestRenderRuntimeClassYAML(t *testing.T) {
 	if !strings.Contains(out, "kind: RuntimeClass") {
 		t.Fatalf("rendered manifest missing kind: %s", out)
 	}
-	if !strings.Contains(out, "name: iluvatar-bi-v150") {
+	if !strings.Contains(out, "name: "+UnifiedRuntimeName) {
 		t.Fatalf("rendered manifest missing runtimeClass name: %s", out)
 	}
-	if !strings.Contains(out, "handler: iluvatar-bi-v150") {
+	if !strings.Contains(out, "handler: "+UnifiedRuntimeName) {
 		t.Fatalf("rendered manifest missing handler: %s", out)
 	}
-	if !strings.Contains(out, "iluvatar.ai/gpu: present") {
-		t.Fatalf("rendered manifest missing node selector label: %s", out)
+	if strings.Contains(out, "scheduling:") {
+		t.Fatalf("rendered manifest should not include profile-specific scheduling: %s", out)
 	}
 }
 

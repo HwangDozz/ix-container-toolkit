@@ -1,7 +1,7 @@
 # Ascend 910B Validation Record
 
 > 状态：完成
-> 更新日期：2026-04-03
+> 更新日期：2026-04-07
 > 目的：记录 `profiles/ascend-910b.yaml` 的事实来源、节点级验证结论和当前边界，作为 910B profile 收口依据。
 
 ## 一、验证范围
@@ -133,11 +133,56 @@ device plugin：
 
 ## 四、当前结论
 
+### 4.0 2026-04-07 集群侧 `xpu-runtime` 验证补充
+
+本次又补了一轮真实集群验证，使用：
+
+- 镜像：`crater-harbor.act.buaa.edu.cn/xpu-huangsy/xpu-toolkit:v1`
+- 统一 `RuntimeClass`：`xpu-runtime`
+- 节点：`kunlun-02`
+- 测试 Pod：`crater-workspace/xpu-runtime-910b-test`
+
+本轮确认：
+
+- `RuntimeClass xpu-runtime` 已可在集群中创建并被 Pod 正常引用
+- installer 已在 `kunlun-02` 成功完成：
+  - `/usr/local/bin/accelerator-container-runtime`
+  - `/usr/local/bin/accelerator-container-hook`
+  - `/etc/accelerator-toolkit/config.json`
+  - `/etc/accelerator-toolkit/profiles/active.yaml`
+  - `/etc/containerd/config.toml` 中的 `runtimes.xpu-runtime`
+- 在宿主机重新加载 `containerd` 后，测试 Pod 能以 `runtimeClassName: xpu-runtime` 成功启动
+- 测试 Pod 内已确认存在：
+  - `ASCEND_VISIBLE_DEVICES`
+  - `ASCEND_HOME_PATH`
+  - `ASCEND_TOOLKIT_HOME`
+  - `ASCEND_OPP_PATH`
+  - `ASCEND_AICPU_PATH`
+  - `ASCEND_RUNTIME_OPTIONS`
+  - `LD_LIBRARY_PATH`
+  - `PATH`
+  - `PYTHONPATH`
+  - `TOOLCHAIN_HOME`
+  - `CRATER_ASCEND_ENV_INITIALIZED`
+  - `NPU_COMPUTING_FORECAST_HOME`
+- 测试 Pod 内已确认存在 profile 声明的关键路径：
+  - `/usr/local/Ascend/driver/lib64/common`
+  - `/usr/local/Ascend/driver/lib64/driver`
+  - `/usr/local/Ascend/ascend-toolkit/latest/lib64`
+  - `/usr/local/Ascend/driver/tools`
+  - `/usr/local/Ascend/ascend-toolkit/latest/bin`
+- 测试 Pod 内已确认 `/etc/ld.so.conf.d/accelerator-toolkit.conf` 写入成功
+
+本轮同时暴露两个实际运维点：
+
+- Harbor 上的多架构 `v1` manifest 需要显式 push 完成后，节点才能正常拉取
+- installer 容器内直接执行宿主机 `systemctl` 在 `kunlun-02` 上不稳定，因此当前更适合默认 `RESTART_CONTAINERD=false`，由运维侧在必要时单独重启 `containerd`
+
 ### 4.1 910B profile 已完成收口
 
 当前 [ascend-910b.yaml](/home/huangsy/project/ix-container-toolkit/profiles/ascend-910b.yaml) 已具备：
 
-- 正式命名的 `handlerName` / `runtimeClassName`
+- 统一的 `RuntimeClass` / handler：`xpu-runtime`
 - 真实 `resourceNames`
 - 真实 `nodeLabels` / `nodeSelector` / `tolerations`
 - 真实 `selectorEnvVars`

@@ -5,8 +5,6 @@ metadata:
   version: v1alpha1
 
 runtime:
-  handlerName: ascend-910b
-  runtimeClassName: ascend-910b
   underlyingRuntime: runc
   hookStage: prestart
   hookBinary: /usr/local/bin/accelerator-container-hook

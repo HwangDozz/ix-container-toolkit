@@ -5,17 +5,11 @@
 # or:
 #   make render-runtimeclass PROFILE=profiles/iluvatar-bi-v150.yaml
 #
-# Keep this file only as a readable Iluvatar example; do not treat it as the
-# source of truth for deployment.
+# Keep this file only as a readable legacy example; do not treat it as the
+# source of truth for deployment. The active design uses a single shared
+# RuntimeClass/handler name: xpu-runtime.
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata:
-  name: iluvatar-bi-v150
-handler: iluvatar-bi-v150
-scheduling:
-  nodeSelector:
-    iluvatar.ai/gpu: "present"
-  tolerations:
-    - key: iluvatar.ai/gpu
-      operator: Exists
-      effect: NoSchedule
+  name: xpu-runtime
+handler: xpu-runtime

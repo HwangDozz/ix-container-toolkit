@@ -1,7 +1,8 @@
 # RuntimeClass 与 Hook 联调验证报告
 
+> 说明：本文保留了早期 `ix` 命名联调记录。当前实现中统一 `RuntimeClass` / handler 已收敛为 `xpu-runtime`，阅读本文时应将历史 `ix` 口径理解为当前统一运行时入口的前身。
 > 验证日期：2026-04-02
-> 验证范围：`RuntimeClass ix`、`containerd` runtime 注册、`accelerator-container-runtime` hook 注入、`accelerator-container-hook` 设备与驱动注入
+> 验证范围：统一 `RuntimeClass xpu-runtime` 的前身链路验证、`containerd` runtime 注册、`accelerator-container-runtime` hook 注入、`accelerator-container-hook` 设备与驱动注入
 > 验证节点：当前物理宿主机（同时为目标 Kubernetes 节点）
 
 ---
@@ -10,8 +11,8 @@
 
 本次测试的目标不是只确认 Pod 能启动，而是完整验证以下链路：
 
-1. Kubernetes `RuntimeClass ix` 能被 kubelet 接受
-2. `containerd` 已正确注册 `ix` runtime handler
+1. Kubernetes `RuntimeClass xpu-runtime` 能被 kubelet 接受
+2. `containerd` 已正确注册 `xpu-runtime` runtime handler
 3. `accelerator-container-runtime` 能在 `create` 阶段把 `accelerator-container-hook` 注入 OCI spec
 4. `accelerator-container-hook` 能识别 Device Plugin 注入的天数 GPU 信息
 5. `accelerator-container-hook` 能把设备节点、驱动库、驱动工具和 `ld.so` 配置正确写入容器
@@ -27,8 +28,8 @@
 - 存在宿主机二进制：
   - `/usr/local/bin/accelerator-container-runtime`
   - `/usr/local/bin/accelerator-container-hook`
-- `containerd` 配置文件 `/etc/containerd/config.toml` 中已经注册 `ix` runtime
-- 集群中已存在 `RuntimeClass ix`
+- `containerd` 配置文件 `/etc/containerd/config.toml` 中已经注册 `xpu-runtime` runtime
+- 集群中已存在 `RuntimeClass xpu-runtime`
 
 ---
 
@@ -42,7 +43,7 @@
 处理原则：
 
 - 保留原 Pod 的镜像、资源、节点、调度器、挂载、容忍度等配置
-- 新增 `runtimeClassName: ix`
+- 新增 `runtimeClassName: xpu-runtime`
 - 删除 `uid`、`resourceVersion`、`status` 等服务器生成字段
 - 仅修改 Pod 名称
 
@@ -53,14 +54,14 @@
 首次创建验证 Pod 时，Pod 未能启动，报错：
 
 ```text
-Failed to create pod sandbox: rpc error: code = Unknown desc = failed to get sandbox runtime: no runtime for "ix" is configured
+Failed to create pod sandbox: rpc error: code = Unknown desc = failed to get sandbox runtime: no runtime for "xpu-runtime" is configured
 ```
 
 这一步证明：
 
-- `RuntimeClass ix` 已被 kubelet 接受
-- kubelet 已尝试按 `runtimeClassName: ix` 创建 sandbox
-- 但运行中的 `containerd` 还没有加载 `ix` runtime 配置
+- `RuntimeClass xpu-runtime` 已被 kubelet 接受
+- kubelet 已尝试按 `runtimeClassName: xpu-runtime` 创建 sandbox
+- 但运行中的 `containerd` 还没有加载 `xpu-runtime` runtime 配置
 
 处理方式：
 
@@ -69,8 +70,8 @@ Failed to create pod sandbox: rpc error: code = Unknown desc = failed to get san
 
 重启后，验证 Pod 进入 `Running`，说明：
 
-- `RuntimeClass ix` 生效
-- `containerd` 已加载 `ix` runtime
+- `RuntimeClass xpu-runtime` 生效
+- `containerd` 已加载 `xpu-runtime` runtime
 
 ---
 
@@ -147,7 +148,7 @@ kubectl -n crater-workspace exec sg-huangsy-260402-440ca-default0-0-ix -- bash
 
 结果：
 
-- `RuntimeClass ix` 可以正常 `kubectl apply`
+- `RuntimeClass xpu-runtime` 可以正常 `kubectl apply`
 
 ---
 
@@ -168,7 +169,7 @@ kubectl -n crater-workspace exec sg-huangsy-260402-440ca-default0-0-ix -- bash
 
 结果：
 
-- 验证 Pod 可以按 `runtimeClassName: ix` 成功启动
+- 验证 Pod 可以按 `runtimeClassName: xpu-runtime` 成功启动
 
 ---
 
@@ -322,7 +323,7 @@ kubectl -n crater-workspace exec sg-huangsy-260402-440ca-default0-0-ix -- bash
 
 结论：
 
-- `RuntimeClass ix` 生效
+- `RuntimeClass xpu-runtime` 生效
 - `containerd` 已使用 `accelerator-container-runtime`
 - `accelerator-container-runtime` 已正确向 OCI spec 注入 `accelerator-container-hook`
 - `accelerator-container-hook` 已成功识别并处理天数 GPU

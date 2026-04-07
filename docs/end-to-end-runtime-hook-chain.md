@@ -1,9 +1,9 @@
 # ix-container-toolkit 全链路机制说明
 
-> 更新日期：2026-04-02
+> 更新日期：2026-04-07
 > 目标：说明 `ix-container-toolkit` 从部署到生效的完整链路，包括各组件如何注册、如何交互、每一步凭什么判断已经生效
 
-> 说明：本文中的静态 `deployments/runtimeclass/runtimeclass.yaml` 与 `deployments/daemonset/daemonset.yaml` 现在仅作为 Iluvatar 历史参考。当前主入口是 `profiles/*.yaml` + `accelerator-profile-render` + `make deploy`。
+> 说明：本文中的静态 `deployments/runtimeclass/runtimeclass.yaml` 与 `deployments/daemonset/daemonset.yaml` 现在仅作为历史参考。当前主入口是 `profiles/*.yaml` + `accelerator-profile-render` + `make deploy`。当前集群统一使用 `RuntimeClass/handler = xpu-runtime`。
 
 ---
 
@@ -12,9 +12,9 @@
 这个系统的核心思路不是直接改 Kubernetes，也不是直接改业务镜像，而是在节点侧插入一层自定义 OCI runtime shim：
 
 1. `accelerator-installer` 把 `accelerator-container-runtime` 和 `accelerator-container-hook` 安装到宿主机
-2. `accelerator-installer` patch 宿主机 `containerd` 配置，向 `containerd` 注册一个新的 runtime handler：`ix`
-3. 用户 Pod 使用 `runtimeClassName: ix`
-4. kubelet 通过 CRI 告诉 `containerd`：这个 Pod 要用 `ix` 这个 runtime handler
+2. `accelerator-installer` patch 宿主机 `containerd` 配置，向 `containerd` 注册统一 runtime handler：`xpu-runtime`
+3. 用户 Pod 使用 `runtimeClassName: xpu-runtime`
+4. kubelet 通过 CRI 告诉 `containerd`：这个 Pod 要用 `xpu-runtime` 这个 runtime handler
 5. `containerd` 创建容器时，实际调用的是 `accelerator-container-runtime`
 6. `accelerator-container-runtime` 在 `create` 阶段改写 OCI bundle 的 `config.json`，把 `accelerator-container-hook` 注入为 `prestart hook`
 7. 底层 `runc` 执行容器创建，在容器进程启动前自动执行 `accelerator-container-hook`
@@ -41,9 +41,9 @@
 - 写宿主机配置文件 `/etc/accelerator-toolkit/config.json`
 - patch `/etc/containerd/config.toml`
 - 可选重启 `containerd`
-- 给节点打 `iluvatar.ai/gpu=present` 标签
+- 给节点打 profile 声明的节点标签
 
-这一步决定了“节点是否具备使用 ix runtime 的条件”。
+这一步决定了“节点是否具备使用 `xpu-runtime` 的条件”。
 
 ---
 
@@ -122,7 +122,7 @@ initContainers:
       - name: HOST_CONFIG_DIR
         value: /etc/accelerator-toolkit
       - name: RESTART_CONTAINERD
-        value: "true"
+        value: "false"
     volumeMounts:
       - name: host-root
         mountPath: /host
@@ -160,9 +160,7 @@ initContainers:
 
 - `underlyingRuntime: "runc"`
 - `hookPath: "/usr/local/bin/accelerator-container-hook"`
-- `deviceListEnvvar: "ILUVATAR_COREX_VISIBLE_DEVICES"`
-- `driverLibraryPaths`
-- `driverBinaryPaths`
+- 其他设备选择 env、驱动目录等节点事实由 active profile 提供，不再写回 `config.json`
 
 `patchContainerd()` 做的事情：
 
@@ -170,50 +168,68 @@ initContainers:
 - 追加：
 
 ```toml
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.ix]
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.xpu-runtime]
   runtime_type = "io.containerd.runc.v2"
-  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.ix.options]
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.xpu-runtime.options]
     BinaryName = "/usr/local/bin/accelerator-container-runtime"
 ```
 
 这段配置的意义是：
 
-- 对 `containerd` 来说，新增了一个 runtime handler，名字叫 `ix`
+- 对 `containerd` 来说，新增了一个统一 runtime handler，名字叫 `xpu-runtime`
 - 这个 handler 仍然属于 `io.containerd.runc.v2`
 - 但执行 runtime 时，不再直接调系统默认 `runc`
 - 而是先调 `/usr/local/bin/accelerator-container-runtime`
 
 也就是说：
 
-- `handler = ix`
+- `handler = xpu-runtime`
 - `BinaryName = /usr/local/bin/accelerator-container-runtime`
 
 这两个配置把 Kubernetes 的 `RuntimeClass` 和宿主机上的 runtime 二进制接起来了。
 
 ---
 
-### 3.3 为什么还需要重启 containerd
+### 3.3 为什么有时仍需要重启 containerd
 
 因为 `patchContainerd()` 改的是配置文件，不是运行中的内存状态。
 
-如果只写了 `/etc/containerd/config.toml`，但没重启 `containerd`，运行中的 `containerd` 仍然不知道有 `ix` 这个 handler。
+如果只写了 `/etc/containerd/config.toml`，但没重启 `containerd`，运行中的 `containerd` 仍然不知道有 `xpu-runtime` 这个 handler。
+
+当前仓库渲染出的 installer DaemonSet 默认使用：
+
+```yaml
+- name: RESTART_CONTAINERD
+  value: "false"
+```
+
+原因是：
+
+- 不同节点宿主机上的 `systemctl` / 动态库依赖环境差异较大
+- 在容器内直接调用宿主机 `systemctl` 并不总是稳定
+- 自动重启失败会把本来已经完成的“复制二进制 + 写 profile + patch config”也一起判成安装失败
+
+因此当前更稳妥的策略是：
+
+- installer 默认只完成宿主机文件和配置落盘
+- 当且仅当确认宿主机环境允许时，再单独重启 `containerd`
 
 这也是我们联调时出现这个报错的原因：
 
 ```text
-no runtime for "ix" is configured
+no runtime for "xpu-runtime" is configured
 ```
 
 这个报错的准确含义不是“YAML 写错了”，而是：
 
-- `RuntimeClass ix` 存在
+- `RuntimeClass xpu-runtime` 存在
 - kubelet 也把这个 handler 名传给了 `containerd`
-- 但当前运行中的 `containerd` 没有把 `ix` 注册进自己的 runtime handler 表里
+- 但当前运行中的 `containerd` 没有把 `xpu-runtime` 注册进自己的 runtime handler 表里
 
 凭据：
 
-- 宿主机 [config.toml](/etc/containerd/config.toml) 已有 `runtimes.ix`
-- 但 Pod 仍报 `no runtime for "ix" is configured`
+- 宿主机 [config.toml](/etc/containerd/config.toml) 已有 `runtimes.xpu-runtime`
+- 但 Pod 仍报 `no runtime for "xpu-runtime" is configured`
 - 重启 `containerd` 后，Pod 立即能进入 `Running`
 
 所以“配置存在”和“配置已生效”是两回事。
@@ -238,24 +254,24 @@ no runtime for "ix" is configured
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata:
-  name: ix
-handler: ix
+  name: xpu-runtime
+handler: xpu-runtime
 ```
 
 `metadata.name` 是用户 Pod 里要写的名字：
 
 ```yaml
 spec:
-  runtimeClassName: ix
+  runtimeClassName: xpu-runtime
 ```
 
-`handler: ix` 是传给 kubelet / CRI / containerd 的 handler 名。
+`handler: xpu-runtime` 是传给 kubelet / CRI / containerd 的 handler 名。
 
 也就是说：
 
 - Pod 写的是 `runtimeClassName`
 - kubelet 真正下发给 `containerd` 的是 `handler`
-- `handler` 再去匹配 `containerd` 配置里的 `runtimes.ix`
+- `handler` 再去匹配 `containerd` 配置里的 `runtimes.xpu-runtime`
 
 ---
 
@@ -265,12 +281,12 @@ spec:
 
 ```yaml
 spec:
-  runtimeClassName: ix
+  runtimeClassName: xpu-runtime
 ```
 
-并且这个 `RuntimeClass` 的 `handler` 也是 `ix` 时，kubelet 在创建 sandbox / container 时会告诉 `containerd`：
+并且这个 `RuntimeClass` 的 `handler` 也是 `xpu-runtime` 时，kubelet 在创建 sandbox / container 时会告诉 `containerd`：
 
-- 这个工作负载要用 runtime handler `ix`
+- 这个工作负载要用 runtime handler `xpu-runtime`
 
 如果 `containerd` 已加载前面的配置，它就会选择：
 
@@ -283,10 +299,10 @@ spec:
 
 这一步的凭据：
 
-- `RuntimeClass ix` 存在
-- Pod describe 中 `Runtime Class Name: ix`
+- `RuntimeClass xpu-runtime` 存在
+- Pod describe 中 `Runtime Class Name: xpu-runtime`
 - `crictl inspectp` 中能看到：
-  - `runtimeHandler: "ix"`
+  - `runtimeHandler: "xpu-runtime"`
   - `runtimeOptions.binary_name: "/usr/local/bin/accelerator-container-runtime"`
 
 这三条一起才能证明：
@@ -344,13 +360,7 @@ r.containerRequestsGPU(&spec)
 实现逻辑是：
 
 - 读取 `spec.Process.Env`
-- 查找 `cfg.Hook.DeviceListEnvvar + "="`
-
-当前默认配置来自 [config.go](/home/huangsy/project/ix-container-toolkit/pkg/config/config.go)：
-
-```go
-DeviceListEnvvar: "ILUVATAR_COREX_VISIBLE_DEVICES"
-```
+- 查找 active profile 中声明的 `device.selectorEnvVars`
 
 也就是说 runtime 并不是靠：
 
@@ -689,7 +699,7 @@ symlink：
 - 宿主机有：
   - [config.json](/etc/accelerator-toolkit/config.json)
 - 宿主机 `containerd` 配置有：
-  - `runtimes.ix`
+  - `runtimes.xpu-runtime`
   - `BinaryName = "/usr/local/bin/accelerator-container-runtime"`
 
 这说明节点侧安装已经完成。
@@ -698,10 +708,10 @@ symlink：
 
 ### 9.2 Kubernetes / CRI 层证据
 
-- 集群存在 `RuntimeClass ix`
-- 验证 Pod 指定了 `runtimeClassName: ix`
+- 集群存在 `RuntimeClass xpu-runtime`
+- 验证 Pod 指定了 `runtimeClassName: xpu-runtime`
 - `crictl inspectp` 里能看到：
-  - `runtimeHandler: "ix"`
+  - `runtimeHandler: "xpu-runtime"`
   - `runtimeOptions.binary_name: "/usr/local/bin/accelerator-container-runtime"`
 
 这说明 kubelet 和 `containerd` 的调用链已经切换到了 `accelerator-container-runtime`。
@@ -784,14 +794,14 @@ Pod 能跑起来，只能说明：
 
 ---
 
-### 10.3 “配置文件里有 `runtimes.ix`” 不等于 containerd 已生效
+### 10.3 “配置文件里有 `runtimes.xpu-runtime`” 不等于 containerd 已生效
 
 因为运行中的 `containerd` 可能还没 reload/restart。
 
 我们已经实际遇到过：
 
 - 配置文件里有 `ix`
-- 但 Pod 仍报 `no runtime for "ix" is configured`
+- 但 Pod 仍报 `no runtime for "xpu-runtime" is configured`
 
 所以必须区分：
 

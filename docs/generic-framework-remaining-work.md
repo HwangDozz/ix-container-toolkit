@@ -117,7 +117,7 @@
 
 ### 3.5 继续收敛 installer / 渲染器中的项目级硬编码
 
-当前 profile 已经能决定 runtime handler、RuntimeClass 和节点标签，但渲染器和 installer 里仍有不少项目级常量。
+当前 profile 已不再单独决定 runtime handler / RuntimeClass 名称，二者统一为 `xpu-runtime`；但渲染器和 installer 里仍有不少项目级常量。
 
 还需要做：
 

@@ -20,7 +20,7 @@
 | 工具目录注入 | `/usr/local/corex/bin` | 待补 | `driver/tools + ascend-toolkit/latest/bin + tools/ccec_compiler/bin` | 当前样本至少确认这些路径 |
 | linker 策略 | `ldconfig` | 待补 | `ldconfig` | 当前 schema 足够表达 910B 的 linker 基线 |
 | extraEnv | `{}` | 待补 | 需要重点注入 | 当前样本实际依赖 `ASCEND_*`、`PATH`、`LD_LIBRARY_PATH`、`PYTHONPATH` |
-| RuntimeClass / handler | `ix` / `ix` | 待补 | `ascend-910b` / `ascend-910b` | 910B profile 已转为正式命名 |
+| RuntimeClass / handler | `xpu-runtime` / `xpu-runtime` | `xpu-runtime` / `xpu-runtime` | `xpu-runtime` / `xpu-runtime` | 运行时入口已统一，差异只保留在 profile 与资源调度层 |
 | 节点标签 | `iluvatar.ai/gpu=present` | 待补 | `accelerator=huawei-Ascend910` | 当前样本来自 device plugin DaemonSet 的调度条件 |
 
 ## 结论

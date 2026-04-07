@@ -1,7 +1,7 @@
 # ix-container-toolkit 首版 Generic Profile Schema
 
-> 更新日期：2026-04-03
-> 状态：`P1` 草案
+> 更新日期：2026-04-07
+> 状态：已落地，本文包含当前实现约束
 > 目标：定义首版 YAML profile 的最小结构、加载约束和校验边界，为后续 runtime/hook/installer 通用化改造提供稳定输入。
 
 ## 一、设计目标
@@ -74,29 +74,30 @@ inject: {}
 
 用途：
 
-- 描述 runtime shim 与 RuntimeClass 的运行时注册信息
+- 描述 runtime shim 的节点侧执行信息
 
 字段：
 
-- `handlerName`
-- `runtimeClassName`
 - `underlyingRuntime`
 - `hookStage`
 - `hookBinary`
 
 约束：
 
-- `handlerName` 必填
-- `runtimeClassName` 必填
 - `underlyingRuntime` 必填
 - `hookStage` 首版只接受 `prestart`
 - `hookBinary` 必填
+
+当前实现补充约束：
+
+- 集群侧统一只使用一个 `RuntimeClass` / handler：`xpu-runtime`
+- profile 不再单独声明 `handlerName` 或 `runtimeClassName`
 
 ### 4.3 `kubernetes`
 
 用途：
 
-- 描述 Kubernetes 侧资源名、节点标签和 RuntimeClass 调度约束
+- 描述 Kubernetes 侧资源名、节点标签和 installer DaemonSet 的节点选择约束
 
 字段：
 
@@ -110,6 +111,11 @@ inject: {}
 - `resourceNames` 至少一个
 - `nodeLabels` 可为空
 - `runtimeClassScheduling` 可为空，但 Iluvatar 现状样例中会显式填写
+
+当前实现说明：
+
+- `runtimeClassScheduling` 当前只用于渲染 installer DaemonSet
+- 统一的 `RuntimeClass xpu-runtime` 不再携带 profile-specific scheduling
 
 ### 4.4 `device`
 
@@ -215,8 +221,6 @@ inject: {}
 
 首版 schema 应能无歧义承载当前 Iluvatar 事实：
 
-- `handlerName=ix`
-- `runtimeClassName=ix`
 - `resourceNames=["iluvatar.ai/gpu"]`
 - `selectorEnvVars=["ILUVATAR_COREX_VISIBLE_DEVICES"]`
 - `deviceGlobs=["/dev/iluvatar*"]`
@@ -228,7 +232,7 @@ inject: {}
 
 后续代码改造建议按下面方式消费 profile：
 
-1. installer 读取 `runtime` 与 `kubernetes` 生成 runtime handler、RuntimeClass 和节点标签
+1. installer 读取 `runtime` 与 `kubernetes`，在节点侧注册统一 `xpu-runtime` handler，并处理节点标签
 2. runtime 读取 `runtime.hookStage`、`device.selectorEnvVars` 决定何时注入 hook
 3. hook 读取 `device` 与 `inject`，执行设备解析和 artifact 注入
 
@@ -240,10 +244,11 @@ inject: {}
 
 - installer 可读取 profile 并生成兼容 `config.json`
 - `pkg/config` 当前角色是旧 JSON 兼容层，不再是通用化后的主配置模型
-- installer 可根据 profile 生成 runtime handler 和节点标签行为
+- installer 会根据 profile 在节点侧注册统一 `xpu-runtime` handler，并处理节点标签行为
 - `accelerator-profile-render runtimeclass --profile <path>` 可从 profile 渲染 RuntimeClass
 - `accelerator-profile-render daemonset --profile <path> --image <image>` 可从 profile 渲染 installer DaemonSet
 - `accelerator-profile-render bundle --profile <path> --image <image>` 可渲染整包部署清单：RBAC + RuntimeClass + DaemonSet
+- 渲染得到的 `RuntimeClass` 名称固定为 `xpu-runtime`
 - `make deploy` / `make undeploy` 已改为基于 profile 渲染 RuntimeClass，而不是依赖静态 `runtimeclass.yaml`
 - `make deploy` / `make undeploy` 已改为基于 profile 渲染 DaemonSet，不再依赖静态 Iluvatar 节点标签与 driver 路径 env
 - `make deploy` / `make undeploy` 现在基于 profile 整包渲染并 apply/delete

@@ -79,7 +79,7 @@
 1. 将 `accelerator-container-runtime` 和 `accelerator-container-hook` 二进制从镜像复制到宿主机（默认 `/usr/local/bin/`）
 2. 生成并写入 `/etc/accelerator-toolkit/config.json`，支持通过环境变量覆盖驱动路径和日志级别
 3. Patch `/etc/containerd/config.toml`，追加 `ix` runtime class 配置（幂等：已存在则跳过）
-4. 可选：通过 `systemctl restart containerd` 重启 containerd（`RESTART_CONTAINERD=true` 时执行）
+4. 可选：通过 `systemctl restart containerd` 重启 containerd（`RESTART_CONTAINERD=true` 时执行；当前渲染默认值为 `false`）
 
 当前补充状态：
 
@@ -95,7 +95,7 @@
 | `HOST_BIN_DIR` | `/usr/local/bin` | 宿主机二进制安装路径 |
 | `HOST_CONFIG_DIR` | `/etc/accelerator-toolkit` | 宿主机配置目录 |
 | `HOST_MOUNT` | `/host` | 宿主机根目录挂载点 |
-| `RESTART_CONTAINERD` | `""` | 设为 `true` 时重启 containerd |
+| `RESTART_CONTAINERD` | `false` | 设为 `true` 时重启 containerd；默认不自动重启 |
 | `IX_DRIVER_LIB_PATHS` | `/usr/local/corex/lib64:/usr/local/corex/lib` | 驱动库路径（冒号分隔）|
 | `IX_DRIVER_BIN_PATHS` | `/usr/local/corex/bin` | 驱动工具路径 |
 | `ACCELERATOR_LOG_LEVEL` | `info` | 日志级别 |
@@ -109,14 +109,14 @@
 | 组件 | 状态 | 说明 |
 |---|---|---|
 | `pkg/config` | 兼容层 | 旧 JSON 配置模型与默认值兼容层，不再是通用化后的主配置模型 |
-| `pkg/profile` | 完成 | YAML profile 加载、校验、渲染 RuntimeClass/DaemonSet |
+| `pkg/profile` | 完成 | YAML profile 加载、校验、渲染统一 `RuntimeClass` 与 profile 驱动 DaemonSet |
 | `pkg/runtimeview` | 完成 | 统一收敛 `profile + config` 的运行时读取视图 |
 | `pkg/device` | 完成 | `/dev/iluvatar*` 枚举（跳过非数字后缀）、all/none/索引过滤 |
 | `pkg/logger` | 完成 | logrus 封装，支持文件和 stderr 双输出 |
 | `Dockerfile` | 完成 | 多阶段构建：Go builder + 最小 installer 镜像 |
 | `Makefile` | 完成 | build / test / docker-build / docker-push / deploy / undeploy |
 | DaemonSet YAML | 历史参考 | 当前部署主入口已切到 profile 渲染 |
-| RuntimeClass YAML | 历史参考 | 当前部署主入口已切到 profile 渲染 |
+| RuntimeClass YAML | 历史参考 | 当前部署主入口已切到 profile 渲染，且统一为 `xpu-runtime` |
 | RBAC YAML | 完成 | ServiceAccount + ClusterRole + ClusterRoleBinding |
 | 单元测试 | 完成 | 35 个用例，覆盖 config / device / hook / runtime 全部核心逻辑 |
 

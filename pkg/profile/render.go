@@ -170,10 +170,9 @@ func (p *Profile) RenderRuntimeClassYAML() ([]byte, error) {
 		APIVersion: "node.k8s.io/v1",
 		Kind:       "RuntimeClass",
 		Metadata: RuntimeClassMetadata{
-			Name: p.Runtime.RuntimeClassName,
+			Name: UnifiedRuntimeName,
 		},
-		Handler:    p.Runtime.HandlerName,
-		Scheduling: p.Kubernetes.RuntimeClassScheduling,
+		Handler: UnifiedRuntimeName,
 	}
 
 	data, err := yaml.Marshal(&manifest)
@@ -250,7 +249,7 @@ func (p *Profile) RenderDaemonSetYAML(image, sourceProfilePath string) ([]byte, 
 								{Name: "HOST_CONFIG_DIR", Value: renderedHostConfigDir},
 								{Name: "HOST_MOUNT", Value: "/host"},
 								{Name: renderedProfileEnvName, Value: profileInImage},
-								{Name: "RESTART_CONTAINERD", Value: "true"},
+								{Name: "RESTART_CONTAINERD", Value: "false"},
 								{Name: renderedLogLevelEnvName, Value: "info"},
 							},
 							VolumeMounts: []VolumeMount{

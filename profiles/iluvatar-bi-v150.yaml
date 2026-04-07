@@ -5,8 +5,6 @@ metadata:
   version: v1alpha1
 
 runtime:
-  handlerName: iluvatar-bi-v150
-  runtimeClassName: iluvatar-bi-v150
   underlyingRuntime: runc
   hookStage: prestart
   hookBinary: /usr/local/bin/accelerator-container-hook

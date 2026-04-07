@@ -52,11 +52,11 @@ func (v *View) UnderlyingRuntime() string {
 }
 
 func (v *View) HandlerName() string {
-	return v.profile.Runtime.HandlerName
+	return profile.UnifiedRuntimeName
 }
 
 func (v *View) RuntimeClassName() string {
-	return v.profile.Runtime.RuntimeClassName
+	return profile.UnifiedRuntimeName
 }
 
 func (v *View) NodeLabels() map[string]string {

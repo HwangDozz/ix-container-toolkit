@@ -134,7 +134,7 @@ func TestPatchContainerd_IsIdempotent(t *testing.T) {
 		t.Fatalf("reading patched config: %v", err)
 	}
 	content := string(data)
-	marker := `[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.ascend-910b]`
+	marker := `[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.xpu-runtime]`
 	if strings.Count(content, marker) != 1 {
 		t.Fatalf("runtime stanza count = %d, want 1\n%s", strings.Count(content, marker), content)
 	}

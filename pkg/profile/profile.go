@@ -11,6 +11,7 @@ import (
 )
 
 const HookStagePrestart = "prestart"
+const UnifiedRuntimeName = "xpu-runtime"
 
 var validArtifactKinds = map[string]bool{
 	"device-nodes":     true,
@@ -40,8 +41,6 @@ type Metadata struct {
 }
 
 type Runtime struct {
-	HandlerName       string `yaml:"handlerName"`
-	RuntimeClassName  string `yaml:"runtimeClassName"`
 	UnderlyingRuntime string `yaml:"underlyingRuntime"`
 	HookStage         string `yaml:"hookStage"`
 	HookBinary        string `yaml:"hookBinary"`
@@ -148,12 +147,6 @@ func (p *Profile) Validate() error {
 	}
 	if p.Metadata.Version == "" {
 		return fmt.Errorf("metadata.version is required")
-	}
-	if p.Runtime.HandlerName == "" {
-		return fmt.Errorf("runtime.handlerName is required")
-	}
-	if p.Runtime.RuntimeClassName == "" {
-		return fmt.Errorf("runtime.runtimeClassName is required")
 	}
 	if p.Runtime.UnderlyingRuntime == "" {
 		return fmt.Errorf("runtime.underlyingRuntime is required")

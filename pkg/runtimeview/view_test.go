@@ -17,8 +17,8 @@ func TestLoad_WithProfile(t *testing.T) {
 	if view.Profile() == nil {
 		t.Fatal("expected loaded profile")
 	}
-	if view.HandlerName() != "iluvatar-bi-v150" {
-		t.Fatalf("HandlerName = %q, want %q", view.HandlerName(), "iluvatar-bi-v150")
+	if view.HandlerName() != "xpu-runtime" {
+		t.Fatalf("HandlerName = %q, want %q", view.HandlerName(), "xpu-runtime")
 	}
 	if view.HookPath() != "/usr/local/bin/accelerator-container-hook" {
 		t.Fatalf("HookPath = %q, want %q", view.HookPath(), "/usr/local/bin/accelerator-container-hook")
