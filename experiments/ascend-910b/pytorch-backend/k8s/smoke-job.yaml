@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ascend-910b-backend-smoke
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: ascend-910b-backend-smoke
+    spec:
+      restartPolicy: Never
+      runtimeClassName: xpu-runtime
+      nodeSelector:
+        accelerator: huawei-Ascend910
+      containers:
+        - name: smoke
+          image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/ascend-910b-pytorch-backend:dev
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - /opt/ascend-910b-backend/smoke_tests/ascend_910b_smoke.py
+            - --level
+            - l3
+            - --steps
+            - "10"
+          resources:
+            limits:
+              huawei.com/Ascend910: "1"
+              cpu: "4"
+              memory: 16Gi
+            requests:
+              huawei.com/Ascend910: "1"
+              cpu: "4"
+              memory: 16Gi

@@ -30,28 +30,34 @@
 8. [首版 Generic Profile Schema](/home/huangsy/project/ix-container-toolkit/docs/generic-profile-schema.md)  
    定义 `metadata/runtime/kubernetes/device/inject` 五段式 YAML 结构、加载约束和校验边界。
 
-9. [通用化改造计划](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-plan.md)  
+9. [PyTorch Backend 与异构训练可移植性总结](/home/huangsy/project/ix-container-toolkit/docs/pytorch-backend-and-portability-summary.md)  
+   简要说明 PyTorch backend、训练代码无缝迁移、镜像分层和 toolkit 的职责边界。
+
+10. [Ascend 910B Runtime 与 PyTorch Backend 闭环记录](/home/huangsy/project/ix-container-toolkit/docs/ascend-910b-runtime-and-backend-closure.md)  
+   记录 910B 当前运行时事实、backend 镜像模板、smoke test 分级和第一阶段闭环标准。
+
+11. [通用化改造计划](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-plan.md)  
    描述项目从 Iluvatar 专用实现演进为 YAML profile 驱动通用框架的阶段目标、优先级和后续调研计划。
 
-10. [通用化阶段剩余工作清单](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-remaining-work.md)  
+12. [通用化阶段剩余工作清单](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-remaining-work.md)  
    汇总当前距离“首轮通用化目标完成”还缺哪些工作，重点标出 `P2`、`P3`、验证和文档收口缺口。
 
-11. [通用化阶段执行任务拆解](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-task-breakdown.md)  
+13. [通用化阶段执行任务拆解](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-task-breakdown.md)  
    把剩余工作进一步拆成可执行任务、issue 粒度和里程碑建议，便于直接推进。
 
-12. [通用化阶段执行跟踪](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-execution-tracker.md)  
+14. [通用化阶段执行跟踪](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-execution-tracker.md)  
    跟踪 `P2`、`P3`、验证与文档收口的执行状态、阻塞项和下一步优先级。
 
-13. [全链路机制说明](/home/huangsy/project/ix-container-toolkit/docs/end-to-end-runtime-hook-chain.md)  
+15. [全链路机制说明](/home/huangsy/project/ix-container-toolkit/docs/end-to-end-runtime-hook-chain.md)  
    解释 `RuntimeClass -> containerd -> accelerator-container-runtime -> accelerator-container-hook -> 容器 rootfs` 是如何逐层生效的，以及每一步的运行时凭据。
 
-14. [RuntimeClass 与 Hook 联调验证报告](/home/huangsy/project/ix-container-toolkit/docs/runtime-hook-validation.md)  
+16. [RuntimeClass 与 Hook 联调验证报告](/home/huangsy/project/ix-container-toolkit/docs/runtime-hook-validation.md)  
    记录本次真实联调过程、遇到的问题、修复的 bug 和最终验证结果。
 
-15. [物理节点验证报告](/home/huangsy/project/ix-container-toolkit/docs/physical-node-validation.md)  
+17. [物理节点验证报告](/home/huangsy/project/ix-container-toolkit/docs/physical-node-validation.md)  
    记录宿主机 `/dev/iluvatar*`、`/usr/local/corex`、`ixsmi` 等真实环境信息，用于校正代码假设。
 
-16. [真实 Pod 分析](/home/huangsy/project/ix-container-toolkit/docs/pod-analysis.md)  
+18. [真实 Pod 分析](/home/huangsy/project/ix-container-toolkit/docs/pod-analysis.md)  
    记录对线上真实 GPU Pod 的 YAML 和 Device Plugin 行为分析，重点解释为什么要兼容 `ILUVATAR_COREX_VISIBLE_DEVICES` 和 UUID。
 
 ## 按用途查找
@@ -66,6 +72,8 @@
 - [2026-04-07 集群测试总结](/home/huangsy/project/ix-container-toolkit/docs/2026-04-07-cluster-test-summary.md)
 - [通用化改造 P0 基线](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-p0-baseline.md)
 - [首版 Generic Profile Schema](/home/huangsy/project/ix-container-toolkit/docs/generic-profile-schema.md)
+- [PyTorch Backend 与异构训练可移植性总结](/home/huangsy/project/ix-container-toolkit/docs/pytorch-backend-and-portability-summary.md)
+- [Ascend 910B Runtime 与 PyTorch Backend 闭环记录](/home/huangsy/project/ix-container-toolkit/docs/ascend-910b-runtime-and-backend-closure.md)
 - [通用化改造计划](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-plan.md)
 - [通用化阶段剩余工作清单](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-remaining-work.md)
 - [通用化阶段执行任务拆解](/home/huangsy/project/ix-container-toolkit/docs/generic-framework-task-breakdown.md)

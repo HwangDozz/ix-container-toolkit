@@ -290,6 +290,7 @@ func TestInjectHook_InjectsWhenGPURequested(t *testing.T) {
 	prof := defaultProfile(t)
 	cfg := defaultCfg(t, prof)
 	cfg.HookPath = "/usr/bin/accelerator-container-hook"
+	cfg.Hook.DisableRequire = true
 	r := testRuntime(cfg, prof)
 
 	if err := r.injectHook(bundleDir); err != nil {
@@ -346,6 +347,7 @@ func TestInjectHook_PrependsBefore_ExistingHooks(t *testing.T) {
 	prof := defaultProfile(t)
 	cfg := defaultCfg(t, prof)
 	cfg.HookPath = "/usr/bin/accelerator-container-hook"
+	cfg.Hook.DisableRequire = true
 	r := testRuntime(cfg, prof)
 
 	if err := r.injectHook(bundleDir); err != nil {
@@ -379,6 +381,7 @@ func TestInjectHook_InjectsProfileExtraEnv(t *testing.T) {
 	baseProf := defaultProfile(t)
 	cfg := defaultCfg(t, baseProf)
 	cfg.HookPath = "/usr/bin/accelerator-container-hook"
+	cfg.Hook.DisableRequire = true
 	prof := &profile.Profile{
 		Device: profile.Device{
 			SelectorEnvVars: []string{"ILUVATAR_COREX_VISIBLE_DEVICES"},
@@ -420,5 +423,70 @@ func TestInjectHook_MissingBundle(t *testing.T) {
 	err := r.injectHook("/nonexistent/bundle")
 	if err == nil {
 		t.Error("injectHook should return error for missing bundle")
+	}
+}
+
+func TestInjectLinuxDevicePath_AddsDeviceAndCgroupRule(t *testing.T) {
+	spec := specs.Spec{}
+
+	added, err := injectLinuxDevicePath(&spec, "/dev/null")
+	if err != nil {
+		t.Fatalf("injectLinuxDevicePath returned error: %v", err)
+	}
+	if !added {
+		t.Fatal("expected /dev/null to be added")
+	}
+	if spec.Linux == nil {
+		t.Fatal("expected Linux spec to be initialized")
+	}
+	if len(spec.Linux.Devices) != 1 {
+		t.Fatalf("len(Linux.Devices) = %d, want 1", len(spec.Linux.Devices))
+	}
+	dev := spec.Linux.Devices[0]
+	if dev.Path != "/dev/null" {
+		t.Fatalf("device path = %q, want /dev/null", dev.Path)
+	}
+	if dev.Type != "c" {
+		t.Fatalf("device type = %q, want c", dev.Type)
+	}
+	if spec.Linux.Resources == nil || len(spec.Linux.Resources.Devices) != 1 {
+		t.Fatalf("expected one cgroup device rule, got %#v", spec.Linux.Resources)
+	}
+	rule := spec.Linux.Resources.Devices[0]
+	if !rule.Allow || rule.Type != "c" || rule.Access != "rwm" || rule.Major == nil || rule.Minor == nil {
+		t.Fatalf("unexpected cgroup device rule: %#v", rule)
+	}
+}
+
+func TestInjectLinuxDevicePath_DeduplicatesByPath(t *testing.T) {
+	spec := specs.Spec{}
+
+	if _, err := injectLinuxDevicePath(&spec, "/dev/null"); err != nil {
+		t.Fatalf("first injectLinuxDevicePath returned error: %v", err)
+	}
+	added, err := injectLinuxDevicePath(&spec, "/dev/null")
+	if err != nil {
+		t.Fatalf("second injectLinuxDevicePath returned error: %v", err)
+	}
+	if added {
+		t.Fatal("expected duplicate /dev/null not to be added")
+	}
+	if len(spec.Linux.Devices) != 1 {
+		t.Fatalf("len(Linux.Devices) = %d, want 1", len(spec.Linux.Devices))
+	}
+	if len(spec.Linux.Resources.Devices) != 1 {
+		t.Fatalf("len(cgroup device rules) = %d, want 1", len(spec.Linux.Resources.Devices))
+	}
+}
+
+func TestInjectLinuxDevicePath_RejectsRegularFile(t *testing.T) {
+	spec := specs.Spec{}
+	path := filepath.Join(t.TempDir(), "regular")
+	if err := os.WriteFile(path, []byte("not a device"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := injectLinuxDevicePath(&spec, path); err == nil {
+		t.Fatal("expected regular file to be rejected")
 	}
 }

@@ -16,10 +16,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/device"
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/runtimeview"
 )
 
@@ -101,6 +104,9 @@ func (r *Runtime) injectHook(bundle string) error {
 	spec.Hooks.Prestart = append([]specs.Hook{hook}, spec.Hooks.Prestart...) //nolint:staticcheck
 
 	r.injectExtraEnv(&spec)
+	if err := r.injectLinuxDevices(&spec); err != nil {
+		return err
+	}
 
 	modified, err := json.Marshal(&spec)
 	if err != nil {
@@ -144,6 +150,156 @@ func (r *Runtime) injectExtraEnv(spec *specs.Spec) {
 	if injected > 0 {
 		r.log.WithField("count", injected).Info("injected extra OCI env from profile")
 	}
+}
+
+func (r *Runtime) injectLinuxDevices(spec *specs.Spec) error {
+	visibleDevices := r.visibleDevices(spec)
+	if strings.EqualFold(strings.TrimSpace(visibleDevices), "none") {
+		return nil
+	}
+
+	devs, err := device.DiscoverWithProfile(visibleDevices, r.view.Profile(), r.log)
+	if err != nil {
+		return fmt.Errorf("discovering devices for OCI spec injection: %w", err)
+	}
+	if len(devs) == 0 {
+		if r.view.DisableRequire() {
+			r.log.Warn("no matching accelerator devices found for OCI spec injection, continuing because disableRequire=true")
+			return nil
+		}
+		return fmt.Errorf("no matching accelerator devices found for selector value %q", visibleDevices)
+	}
+
+	paths := make([]string, 0, len(devs)+len(r.view.Profile().Device.ControlDeviceGlobs))
+	for _, dev := range devs {
+		paths = append(paths, dev.Path)
+	}
+	paths = append(paths, r.controlDevicePaths()...)
+
+	injected := 0
+	for _, path := range uniqueStrings(paths) {
+		added, err := injectLinuxDevicePath(spec, path)
+		if err != nil {
+			return fmt.Errorf("injecting OCI device %s: %w", path, err)
+		}
+		if added {
+			injected++
+		}
+	}
+	if injected > 0 {
+		r.log.WithField("count", injected).Info("injected OCI linux devices from profile")
+	}
+	return nil
+}
+
+func (r *Runtime) visibleDevices(spec *specs.Spec) string {
+	if spec.Process == nil {
+		return ""
+	}
+	for _, selectorEnv := range r.view.SelectorEnvVars() {
+		prefix := selectorEnv + "="
+		for _, env := range spec.Process.Env {
+			if strings.HasPrefix(env, prefix) {
+				return strings.TrimPrefix(env, prefix)
+			}
+		}
+	}
+	return ""
+}
+
+func (r *Runtime) controlDevicePaths() []string {
+	var paths []string
+	for _, pattern := range r.view.Profile().Device.ControlDeviceGlobs {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			r.log.WithError(err).WithField("pattern", pattern).Warn("invalid control device glob, skipping")
+			continue
+		}
+		paths = append(paths, matches...)
+	}
+	return paths
+}
+
+func injectLinuxDevicePath(spec *specs.Spec, path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeDevice == 0 {
+		return false, fmt.Errorf("not a device node")
+	}
+
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false, fmt.Errorf("unexpected stat type %T", info.Sys())
+	}
+
+	deviceType := "b"
+	if info.Mode()&os.ModeCharDevice != 0 {
+		deviceType = "c"
+	}
+	major := int64(unix.Major(uint64(stat.Rdev)))
+	minor := int64(unix.Minor(uint64(stat.Rdev)))
+	fileMode := info.Mode().Perm()
+	uid := stat.Uid
+	gid := stat.Gid
+
+	if spec.Linux == nil {
+		spec.Linux = &specs.Linux{}
+	}
+	for _, existing := range spec.Linux.Devices {
+		if existing.Path == path {
+			ensureDeviceCgroup(spec, deviceType, major, minor)
+			return false, nil
+		}
+	}
+
+	spec.Linux.Devices = append(spec.Linux.Devices, specs.LinuxDevice{
+		Path:     path,
+		Type:     deviceType,
+		Major:    major,
+		Minor:    minor,
+		FileMode: &fileMode,
+		UID:      &uid,
+		GID:      &gid,
+	})
+	ensureDeviceCgroup(spec, deviceType, major, minor)
+	return true, nil
+}
+
+func ensureDeviceCgroup(spec *specs.Spec, deviceType string, major, minor int64) {
+	if spec.Linux.Resources == nil {
+		spec.Linux.Resources = &specs.LinuxResources{}
+	}
+	for _, existing := range spec.Linux.Resources.Devices {
+		if existing.Allow &&
+			existing.Type == deviceType &&
+			existing.Major != nil && *existing.Major == major &&
+			existing.Minor != nil && *existing.Minor == minor &&
+			existing.Access == "rwm" {
+			return
+		}
+	}
+	spec.Linux.Resources.Devices = append(spec.Linux.Resources.Devices, specs.LinuxDeviceCgroup{
+		Allow:  true,
+		Type:   deviceType,
+		Major:  &major,
+		Minor:  &minor,
+		Access: "rwm",
+	})
+}
+
+func uniqueStrings(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 // containerRequestsGPU returns true if the container spec contains any
