@@ -1,14 +1,14 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ascend-910b-portable-train-single
+  name: ascend-910b-portable-train-transformer
   namespace: crater-workspace
 spec:
   backoffLimit: 0
   template:
     metadata:
       labels:
-        app: ascend-910b-portable-train-single
+        app: ascend-910b-portable-train-transformer
     spec:
       restartPolicy: Never
       runtimeClassName: xpu-runtime
@@ -20,11 +20,13 @@ spec:
           imagePullPolicy: IfNotPresent
           command:
             - python3
-            - /opt/portable-training-tests/portable_resnet_train.py
+            - /opt/portable-training-tests/tiny_transformer_train.py
             - --steps
             - "20"
             - --batch-size
-            - "32"
+            - "8"
+            - --seq-len
+            - "64"
           volumeMounts:
             - name: portable-training-tests
               mountPath: /opt/portable-training-tests

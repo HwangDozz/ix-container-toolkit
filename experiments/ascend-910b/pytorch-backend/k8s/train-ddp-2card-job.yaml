@@ -16,8 +16,8 @@ spec:
         accelerator: huawei-Ascend910
       containers:
         - name: train
-          image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/ascend-910b-pytorch-backend:cann851-py311-torch271-npu271post2
-          imagePullPolicy: Always
+          image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/ascend-910b-pytorch-backend:cann851-py311-torch271-npu271post3
+          imagePullPolicy: IfNotPresent
           command:
             - python3
             - -m

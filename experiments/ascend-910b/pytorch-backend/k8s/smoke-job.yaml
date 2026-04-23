@@ -16,7 +16,7 @@ spec:
         accelerator: huawei-Ascend910
       containers:
         - name: smoke
-          image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/ascend-910b-pytorch-backend:dev
+          image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/ascend-910b-pytorch-backend:cann851-py311-torch271-npu271post3
           imagePullPolicy: IfNotPresent
           command:
             - python3
