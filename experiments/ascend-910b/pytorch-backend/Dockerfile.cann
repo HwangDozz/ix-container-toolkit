@@ -25,7 +25,7 @@ ENV PYTHONUNBUFFERED=1 \
 RUN python3 -m pip install \
       --index-url "${PIP_INDEX_URL}" \
       --trusted-host "${PIP_TRUSTED_HOST}" \
-      numpy pyyaml setuptools wheel \
+      absl-py attrs cloudpickle decorator ml-dtypes numpy psutil pyyaml scipy setuptools tornado wheel \
     && python3 -m pip install \
       --index-url "${PIP_INDEX_URL}" \
       --trusted-host "${PIP_TRUSTED_HOST}" \

@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ascend-910b-portable-train-ddp-2card
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: ascend-910b-portable-train-ddp-2card
+    spec:
+      restartPolicy: Never
+      runtimeClassName: xpu-runtime
+      nodeSelector:
+        accelerator: huawei-Ascend910
+      containers:
+        - name: train
+          image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/ascend-910b-pytorch-backend:cann851-py311-torch271-npu271post2
+          imagePullPolicy: Always
+          command:
+            - python3
+            - -m
+            - torch.distributed.run
+            - --nproc_per_node=2
+            - /opt/portable-training-tests/portable_resnet_train.py
+            - --steps
+            - "20"
+            - --batch-size
+            - "32"
+          volumeMounts:
+            - name: portable-training-tests
+              mountPath: /opt/portable-training-tests
+              readOnly: true
+          resources:
+            limits:
+              huawei.com/Ascend910: "2"
+              cpu: "8"
+              memory: 32Gi
+            requests:
+              huawei.com/Ascend910: "2"
+              cpu: "8"
+              memory: 32Gi
+      volumes:
+        - name: portable-training-tests
+          configMap:
+            name: ascend-910b-portable-training-tests
+            defaultMode: 0755
