@@ -221,7 +221,8 @@ inject: {}
 
 首版 schema 应能无歧义承载当前 Iluvatar 事实：
 
-- `resourceNames=["iluvatar.ai/gpu"]`
+- `resourceNames=["iluvatar.com/gpu"]`
+- `nodeLabels={"iluvatar.ai/gpu":"present"}`
 - `selectorEnvVars=["ILUVATAR_COREX_VISIBLE_DEVICES"]`
 - `deviceGlobs=["/dev/iluvatar*"]`
 - `mapping.command=*ixsmi*`

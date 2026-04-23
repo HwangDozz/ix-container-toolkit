@@ -17,8 +17,8 @@ def import_torch():
 
     try:
         import torch_npu  # noqa: F401
-    except Exception as exc:
-        raise RuntimeError(f"import torch_npu failed: {exc}") from exc
+    except Exception:
+        pass
 
     return torch
 
@@ -29,6 +29,9 @@ def resolve_device(torch, requested, local_rank):
     if hasattr(torch, "npu") and torch.npu.is_available():
         torch.npu.set_device(local_rank)
         return torch.device(f"npu:{local_rank}")
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+        return torch.device(f"cuda:{local_rank}")
     return torch.device("cpu")
 
 
@@ -37,6 +40,8 @@ def resolve_backend(device, requested):
         return requested
     if device.type == "npu":
         return "hccl"
+    if device.type == "cuda":
+        return "nccl"
     return "gloo"
 
 

@@ -14,7 +14,8 @@
 
 | 维度 | Iluvatar BI-V150 | Ascend 910B |
 |---|---|---|
-| Kubernetes resource | `iluvatar.ai/gpu` | `huawei.com/Ascend910` |
+| Kubernetes resource | `iluvatar.com/gpu` | `huawei.com/Ascend910` |
+| 节点标签 | `iluvatar.ai/gpu=present` | `accelerator=huawei-Ascend910` |
 | selector env | `ILUVATAR_COREX_VISIBLE_DEVICES` | `ASCEND_VISIBLE_DEVICES` |
 | selector 格式 | index / UUID | index-list |
 | 设备节点 | `/dev/iluvatar*` | `/dev/davinci*` |

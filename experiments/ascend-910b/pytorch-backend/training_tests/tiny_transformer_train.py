@@ -18,8 +18,8 @@ def import_torch():
 
     try:
         import torch_npu  # noqa: F401
-    except Exception as exc:
-        raise RuntimeError(f"import torch_npu failed: {exc}") from exc
+    except Exception:
+        pass
 
     return torch
 

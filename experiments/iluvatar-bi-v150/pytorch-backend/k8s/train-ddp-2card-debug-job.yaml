@@ -1,0 +1,54 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iluvatar-bi-v150-portable-train-ddp-2card-debug
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: iluvatar-bi-v150-portable-train-ddp-2card-debug
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: inspur-01
+      containers:
+        - name: train
+          image: crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NCCL_DEBUG
+              value: INFO
+            - name: TORCH_DISTRIBUTED_DEBUG
+              value: DETAIL
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          command:
+            - python3
+            - -m
+            - torch.distributed.run
+            - --nproc_per_node=2
+            - /opt/portable-training-tests/portable_resnet_train.py
+            - --steps
+            - "2"
+            - --batch-size
+            - "8"
+          volumeMounts:
+            - name: portable-training-tests
+              mountPath: /opt/portable-training-tests
+              readOnly: true
+          resources:
+            limits:
+              iluvatar.com/gpu: "2"
+              cpu: "8"
+              memory: 32Gi
+            requests:
+              iluvatar.com/gpu: "2"
+              cpu: "8"
+              memory: 32Gi
+      volumes:
+        - name: portable-training-tests
+          configMap:
+            name: iluvatar-bi-v150-portable-training-tests
+            defaultMode: 0755

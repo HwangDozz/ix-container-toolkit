@@ -13,6 +13,68 @@
 
 这些结论已经沉淀到当前 profile/artifact/linker 设计中，原始过程文档已删除。
 
+## Iluvatar BI-V150 Backend 初测
+
+验证时间：2026-04-23
+
+镜像：
+
+```text
+crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+```
+
+节点：
+
+```text
+inspur-01
+```
+
+已确认：
+
+- Device Plugin 实际资源名：`iluvatar.com/gpu`
+- 调度标签：`iluvatar.ai/gpu=present`
+- `ILUVATAR_COREX_VISIBLE_DEVICES` 注入值为 GPU UUID
+- CoreX PyTorch 使用 `torch.cuda` 兼容路径
+- `torch 2.4.1`
+- `torch.version.cuda = 10.2`
+- `torch.cuda.is_available() = true`
+- `torch.distributed.is_nccl_available() = true`
+
+L3 smoke 结果：
+
+- 设备：`cuda:0`
+- 10 step tensor/backward 完成
+- first loss：`14399.4033203125`
+- final loss：`0.0`
+- 结果：通过
+
+L4 单卡 portable CNN 结果：
+
+- 脚本：`experiments/ascend-910b/pytorch-backend/training_tests/portable_resnet_train.py`
+- 设备：`cuda:0`
+- steps：20
+- first loss：`2.4377217292785645`
+- final loss：`2.250478744506836`
+- 结果：通过
+
+L6 Tiny Transformer 结果：
+
+- 脚本：`experiments/ascend-910b/pytorch-backend/training_tests/tiny_transformer_train.py`
+- 设备：`cuda:0`
+- steps：20
+- first loss：`7.771687984466553`
+- final loss：`7.821423530578613`
+- 结果：通过
+
+L5 两卡 DDP 当前状态：
+
+- `torch.distributed.run --nproc_per_node=2`
+- `nccl` 初始化成功
+- rank 0 / rank 1 完成 NCCL communicator init
+- P2P/IPC ring 已连通
+- 训练未在预期时间内结束
+- 当前结论：通信初始化通过，训练阶段或后续 collective 仍需排查
+
 ## Ascend 910B Profile 验证
 
 已验证：

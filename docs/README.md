@@ -22,13 +22,16 @@
 6. [Ascend 910B Backend](./ascend-910b-backend.md)  
    Ascend 910B CANN/PyTorch backend 的镜像构建方式和 smoke test 结果。
 
-7. [可迁移训练代码规范](./portable-training-guidelines.md)  
+7. [Iluvatar BI-V150 Backend](./iluvatar-bi-v150-backend.md)  
+   天数 BI-V150/CoreX PyTorch backend 的本机调研结论和后续验证计划。
+
+8. [可迁移训练代码规范](./portable-training-guidelines.md)  
    训练代码在 CUDA、NPU 和 CPU/debug 后端之间迁移时需要遵守的约束。
 
-8. [Backend 镜像制作注意事项](./backend-image-guidelines.md)  
+9. [Backend 镜像制作注意事项](./backend-image-guidelines.md)  
    后续迁移到其他加速卡时制作 PyTorch backend 镜像的边界和验证要求。
 
-9. [验证结果](./validation-results.md)  
+10. [验证结果](./validation-results.md)  
    已完成的节点级、runtime/hook 和 Ascend 910B smoke 验证结论。
 
 ## 文档维护原则

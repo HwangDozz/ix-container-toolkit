@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iluvatar-bi-v150-backend-smoke
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: iluvatar-bi-v150-backend-smoke
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: inspur-01
+      containers:
+        - name: smoke
+          image: crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - /opt/iluvatar-backend-tests/iluvatar_bi_v150_smoke.py
+            - --level
+            - l3
+            - --steps
+            - "10"
+          volumeMounts:
+            - name: iluvatar-backend-tests
+              mountPath: /opt/iluvatar-backend-tests
+              readOnly: true
+          resources:
+            limits:
+              iluvatar.com/gpu: "1"
+              cpu: "4"
+              memory: 16Gi
+            requests:
+              iluvatar.com/gpu: "1"
+              cpu: "4"
+              memory: 16Gi
+      volumes:
+        - name: iluvatar-backend-tests
+          configMap:
+            name: iluvatar-bi-v150-portable-training-tests
+            defaultMode: 0755

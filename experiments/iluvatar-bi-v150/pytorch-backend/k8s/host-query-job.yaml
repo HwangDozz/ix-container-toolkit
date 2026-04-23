@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iluvatar-bi-v150-host-query-v2
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: inspur-01
+      containers:
+        - name: query
+          image: crater-harbor.act.buaa.edu.cn/library/ubuntu:22.04
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euxo pipefail
+              echo "=== host /usr/local ==="
+              ls -la /host/usr/local | sed -n '1,120p'
+              echo "=== host corex dirs ==="
+              ls -ld /host/usr/local/corex /host/usr/local/corex-* /host/usr/local/*corex* || true
+              readlink /host/usr/local/corex || true
+              test -e /host/usr/local/corex && echo "corex symlink target exists" || echo "corex symlink target missing"
+              test -d /host/usr/local/corex-4.3.0 && echo "corex-4.3.0 dir exists" || echo "corex-4.3.0 dir missing"
+              echo "=== host corex libs ==="
+              find /host/usr/local/corex/lib64 /host/usr/local/corex/lib -maxdepth 1 -type f -printf '%f\n' 2>/dev/null | sort || true
+              echo "=== host corex bins ==="
+              ls /host/usr/local/corex/bin || true
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+              readOnly: true
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /

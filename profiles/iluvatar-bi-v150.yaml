@@ -11,7 +11,7 @@ runtime:
 
 kubernetes:
   resourceNames:
-    - iluvatar.ai/gpu
+    - iluvatar.com/gpu
   nodeLabels:
     iluvatar.ai/gpu: present
   runtimeClassScheduling:
@@ -69,6 +69,7 @@ inject:
         - /usr/local/corex/lib
       containerPath: /usr/local/corex
       mode: so-only
+      optional: true
       excludeDirs:
         - python3
         - cmake
@@ -79,6 +80,7 @@ inject:
         - /usr/local/corex/bin
       containerPath: /usr/local/corex
       mode: bind
+      optional: true
   linker:
     strategy: ldconfig
     configPath: /etc/ld.so.conf.d/accelerator-toolkit.conf

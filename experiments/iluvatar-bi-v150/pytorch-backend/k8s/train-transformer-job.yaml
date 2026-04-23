@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iluvatar-bi-v150-portable-train-transformer
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: iluvatar-bi-v150-portable-train-transformer
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: inspur-01
+      containers:
+        - name: train
+          image: crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - /opt/portable-training-tests/tiny_transformer_train.py
+            - --steps
+            - "20"
+            - --batch-size
+            - "8"
+            - --seq-len
+            - "64"
+          volumeMounts:
+            - name: portable-training-tests
+              mountPath: /opt/portable-training-tests
+              readOnly: true
+          resources:
+            limits:
+              iluvatar.com/gpu: "1"
+              cpu: "4"
+              memory: 16Gi
+            requests:
+              iluvatar.com/gpu: "1"
+              cpu: "4"
+              memory: 16Gi
+      volumes:
+        - name: portable-training-tests
+          configMap:
+            name: iluvatar-bi-v150-portable-training-tests
+            defaultMode: 0755
