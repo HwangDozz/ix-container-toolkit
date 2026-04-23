@@ -3,6 +3,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 FROM golang:1.26.1-bookworm AS builder
 
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
+
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

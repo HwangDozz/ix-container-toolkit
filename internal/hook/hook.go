@@ -286,27 +286,27 @@ func (h *Hook) controlDevicePaths() []string {
 }
 
 func (h *Hook) injectLibraryArtifact(rootfs string, artifact profile.Artifact) error {
-	for _, hostPath := range uniquePreserveOrder(resolveExistingPaths(artifact.HostPaths)) {
-		if _, err := os.Stat(hostPath); os.IsNotExist(err) {
+	for _, hostPath := range resolveArtifactHostPaths(artifact.HostPaths) {
+		if _, err := os.Stat(hostPath.Source); os.IsNotExist(err) {
 			if artifact.Optional {
-				h.log.WithField("path", hostPath).Debug("optional library path not found on host, skipping")
+				h.log.WithField("path", hostPath.Declared).Debug("optional library path not found on host, skipping")
 				continue
 			}
-			return fmt.Errorf("library path %s not found on host", hostPath)
+			return fmt.Errorf("library path %s not found on host", hostPath.Declared)
 		}
 
-		targetDir := artifactTargetDir(rootfs, h.view.ContainerRoot(), artifact.ContainerPath, hostPath)
+		targetDir := artifactTargetDir(rootfs, h.view.ContainerRoot(), artifact.ContainerPath, hostPath.Declared)
 		switch artifact.Mode {
 		case "bind":
 			if err := os.MkdirAll(targetDir, 0755); err != nil {
 				return fmt.Errorf("creating lib dir %s: %w", targetDir, err)
 			}
-			if err := bindMount(hostPath, targetDir); err != nil {
-				return fmt.Errorf("bind-mounting lib dir %s: %w", hostPath, err)
+			if err := bindMount(hostPath.Source, targetDir); err != nil {
+				return fmt.Errorf("bind-mounting lib dir %s: %w", hostPath.Source, err)
 			}
 		case "so-only":
-			if err := h.mountSharedLibraries(hostPath, targetDir, artifact.ExcludeDirs); err != nil {
-				return fmt.Errorf("mounting shared libraries from %s: %w", hostPath, err)
+			if err := h.mountSharedLibraries(hostPath.Source, targetDir, artifact.ExcludeDirs); err != nil {
+				return fmt.Errorf("mounting shared libraries from %s: %w", hostPath.Source, err)
 			}
 		default:
 			return fmt.Errorf("unsupported library artifact mode %q", artifact.Mode)
@@ -316,28 +316,28 @@ func (h *Hook) injectLibraryArtifact(rootfs string, artifact profile.Artifact) e
 }
 
 func (h *Hook) injectDirectoryArtifact(rootfs string, artifact profile.Artifact) error {
-	for _, hostPath := range uniquePreserveOrder(resolveExistingPaths(artifact.HostPaths)) {
-		if _, err := os.Stat(hostPath); os.IsNotExist(err) {
+	for _, hostPath := range resolveArtifactHostPaths(artifact.HostPaths) {
+		if _, err := os.Stat(hostPath.Source); os.IsNotExist(err) {
 			if artifact.Optional {
-				h.log.WithField("path", hostPath).Debug("optional directory path not found on host, skipping")
+				h.log.WithField("path", hostPath.Declared).Debug("optional directory path not found on host, skipping")
 				continue
 			}
-			return fmt.Errorf("directory path %s not found on host", hostPath)
+			return fmt.Errorf("directory path %s not found on host", hostPath.Declared)
 		}
 
-		target := artifactTargetDir(rootfs, h.view.ContainerRoot(), artifact.ContainerPath, hostPath)
+		target := artifactTargetDir(rootfs, h.view.ContainerRoot(), artifact.ContainerPath, hostPath.Declared)
 		if err := os.MkdirAll(target, 0755); err != nil {
 			return fmt.Errorf("creating dir %s: %w", target, err)
 		}
 
 		switch artifact.Mode {
 		case "bind":
-			if err := h.mountDriverBinaries(hostPath, target); err != nil {
-				return fmt.Errorf("mounting directory artifact from %s: %w", hostPath, err)
+			if err := h.mountDriverBinaries(hostPath.Source, target); err != nil {
+				return fmt.Errorf("mounting directory artifact from %s: %w", hostPath.Source, err)
 			}
 		case "copy":
-			if err := copyDir(hostPath, target); err != nil {
-				return fmt.Errorf("copying directory artifact from %s: %w", hostPath, err)
+			if err := copyDir(hostPath.Source, target); err != nil {
+				return fmt.Errorf("copying directory artifact from %s: %w", hostPath.Source, err)
 			}
 		default:
 			return fmt.Errorf("unsupported directory artifact mode %q", artifact.Mode)
@@ -382,14 +382,28 @@ func artifactTargetDir(rootfs, containerRoot, containerPath, hostPath string) st
 	return filepath.Join(rootfs, containerPath, rel)
 }
 
-func resolveExistingPaths(paths []string) []string {
-	resolved := make([]string, 0, len(paths))
-	for _, p := range paths {
-		if real, err := filepath.EvalSymlinks(p); err == nil {
-			resolved = append(resolved, real)
+type artifactHostPath struct {
+	Declared string
+	Source   string
+}
+
+func resolveArtifactHostPaths(paths []string) []artifactHostPath {
+	seen := make(map[string]bool, len(paths))
+	resolved := make([]artifactHostPath, 0, len(paths))
+	for _, declared := range paths {
+		if seen[declared] {
 			continue
 		}
-		resolved = append(resolved, p)
+		seen[declared] = true
+
+		source := declared
+		if real, err := filepath.EvalSymlinks(declared); err == nil {
+			source = real
+		}
+		resolved = append(resolved, artifactHostPath{
+			Declared: declared,
+			Source:   source,
+		})
 	}
 	return resolved
 }
