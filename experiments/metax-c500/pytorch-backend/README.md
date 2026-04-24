@@ -49,7 +49,7 @@ For `profiles/metax-c500.yaml`, `xpu-runtime` defaults the profile selector to `
 The validated installer image is:
 
 ```text
-crater-harbor.act.buaa.edu.cn/xpu-huangsy/accelerator-toolkit-installer:metax-c500-20260424
+crater-harbor.act.buaa.edu.cn/xpu-huangsy/accelerator-toolkit-installer:metax-c500-envall-20260424
 ```
 
 Use the one-shot installer job to avoid replacing the existing Ascend DaemonSet:

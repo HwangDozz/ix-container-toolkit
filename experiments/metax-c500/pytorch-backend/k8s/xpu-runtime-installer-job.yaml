@@ -17,7 +17,7 @@ spec:
         kubernetes.io/hostname: greatwall-02
       containers:
         - name: installer
-          image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/accelerator-toolkit-installer:metax-c500-20260424
+          image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/accelerator-toolkit-installer:metax-c500-envall-20260424
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true

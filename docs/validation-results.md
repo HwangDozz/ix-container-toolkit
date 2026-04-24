@@ -97,36 +97,41 @@ L5 两卡 DDP 结果：
 
 xpu-runtime L3 smoke 结果：
 
-- installer 镜像：`crater-harbor.act.buaa.edu.cn/xpu-huangsy/accelerator-toolkit-installer:metax-c500-20260424`
-- installer digest：`sha256:3afd6f9ed8aa81946a9735e49ffffe0893f2d835f907cafb19f263142e6c8549`
+- installer 镜像：`crater-harbor.act.buaa.edu.cn/xpu-huangsy/accelerator-toolkit-installer:metax-c500-envall-20260424`
+- installer digest：`sha256:0863d3f12114b08863c3c6dfe3a8e5e1a26b16a14926dd5032789b95cd4e1493`
 - active profile：`profiles/metax-c500.yaml`
 - `runtimeClassName: xpu-runtime`
-- selector env：`METAX_VISIBLE_DEVICES=all`
+- Job 未显式设置 `METAX_VISIBLE_DEVICES`
+- runtime shim 默认注入 selector env：`METAX_VISIBLE_DEVICES=all`
 - runtime shim 注入 OCI devices：`count=5`
 - prestart hook 注入成功
 - `mx-smi` 可见并识别 2 张 `MetaX C500`
 - tensor matmul/backward 完成
 - 10 step MLP 训练完成
+- first loss：`2.3281688690185547`
+- final loss：`2.325732707977295`
 - 结果：通过
 
 xpu-runtime 两卡 DDP 结果：
 
 - `runtimeClassName: xpu-runtime`
+- Job 未显式设置 `METAX_VISIBLE_DEVICES`
+- runtime shim 默认注入 selector env：`METAX_VISIBLE_DEVICES=all`
+- runtime shim 注入 OCI devices：`count=5`
 - `torch.distributed.run --nproc_per_node=2`
 - backend：`nccl`
 - world size：2
 - device：`cuda:0` / `cuda:1`
 - steps：20
-- rank 0 final loss：`2.2770137786865234`
-- avg final loss：`2.3143153190612793`
+- rank 0 final loss：`2.289407253265381`
+- avg final loss：`2.3003616333007812`
 - 结果：通过
 
 备注：
 
 - `4Gi` 内存规格会在 Python/torch 初始化阶段被 OOM kill。
 - `1` 张 GPU 规格下，MACA PyTorch 曾出现设备枚举断言；当前可复现通过规格为 `2` 张 GPU。
-- 以上 xpu-runtime 结果来自显式 `METAX_VISIBLE_DEVICES=all` 的验证；后续代码已支持 `env-all` 默认 selector，仍需用不含该 env 的 Job 重新验证。
-- `greatwall-02` 需要重启 containerd 才会加载新写入的 `xpu-runtime` handler。
+- 当前 `env-all` 验证中 containerd handler 已存在，installer 未重启 containerd。
 
 ## Iluvatar BI-V150 Backend 初测
 

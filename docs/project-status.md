@@ -54,5 +54,4 @@ toolkit 不负责：
 
 - `profiles/ascend-910b.yaml` 中仍包含一部分 CANN/toolkit 路径注入。对于官方 CANN backend 镜像，这些路径主要起补充和兼容作用，后续可继续瘦身。
 - `npu-smi` 当前 smoke 日志中仍未出现在容器 `PATH`，但不影响 PyTorch L3 smoke。
-- Metax C500 的 `env-all` 默认 selector 已有单元测试覆盖，但仍需在 `greatwall-02` 上用不含 `METAX_VISIBLE_DEVICES` 的 xpu-runtime Job 重新验证。
 - 310P profile 仍是后续工作，不作为当前 910B 闭环阻塞项。
