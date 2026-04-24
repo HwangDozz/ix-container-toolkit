@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nvidia-a100-runtime-query
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: nvidia-a100-runtime-query
+    spec:
+      restartPolicy: Never
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: inspur-gpu-04
+      containers:
+        - name: query
+          image: crater-harbor.act.buaa.edu.cn/nvcr.io/nvidia/cuda:12.6.2-base-ubi9
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euxo pipefail
+              echo "=== env ==="
+              env | sort | grep -E 'NVIDIA|CUDA|LD_LIBRARY|PATH' || true
+              echo "=== devices ==="
+              ls -l /dev/nvidia* /dev/nvidia-caps/* 2>/dev/null || true
+              echo "=== nvidia-smi ==="
+              nvidia-smi
+              nvidia-smi --query-gpu=index,uuid,name --format=csv
+              echo "=== libraries ==="
+              ldconfig -p 2>/dev/null | grep -E 'libcuda|libnvidia-ml' || true
+              echo "=== mounts ==="
+              mount | grep -Ei 'nvidia|cuda|gpu' || true
+          resources:
+            limits:
+              nvidia.com/a100: "1"
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              nvidia.com/a100: "1"
+              cpu: "2"
+              memory: 4Gi

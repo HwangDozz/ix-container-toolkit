@@ -34,6 +34,9 @@
 10. [验证结果](./validation-results.md)  
    已完成的节点级、runtime/hook 和 Ascend 910B smoke 验证结论。
 
+11. [NVIDIA xpu-toolkit 接入调研](./nvidia-xpu-toolkit-research.md)  
+   NVIDIA GPU Operator、device plugin 策略、A100 查询结果和接入方案评估。
+
 ## 文档维护原则
 
 - 长期事实进入稳定文档，不再新增日期型过程文档。
