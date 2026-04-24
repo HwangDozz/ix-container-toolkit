@@ -12,6 +12,7 @@ import (
 
 const HookStagePrestart = "prestart"
 const UnifiedRuntimeName = "xpu-runtime"
+const InjectModeDelegateOnly = "delegate-only"
 
 var validArtifactKinds = map[string]bool{
 	"device-nodes":     true,
@@ -44,6 +45,7 @@ type Runtime struct {
 	UnderlyingRuntime string `yaml:"underlyingRuntime"`
 	HookStage         string `yaml:"hookStage"`
 	HookBinary        string `yaml:"hookBinary"`
+	InjectMode        string `yaml:"injectMode"`
 }
 
 type Kubernetes struct {
@@ -156,6 +158,9 @@ func (p *Profile) Validate() error {
 	}
 	if p.Runtime.HookBinary == "" {
 		return fmt.Errorf("runtime.hookBinary is required")
+	}
+	if p.Runtime.InjectMode != "" && p.Runtime.InjectMode != InjectModeDelegateOnly {
+		return fmt.Errorf("runtime.injectMode must be empty or %q", InjectModeDelegateOnly)
 	}
 	if len(p.Kubernetes.ResourceNames) == 0 {
 		return fmt.Errorf("kubernetes.resourceNames must not be empty")

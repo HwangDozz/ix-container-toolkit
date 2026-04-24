@@ -25,7 +25,7 @@
 ## 当前已完成
 
 - profile 已成为主输入，核心组件均从 active profile 构造运行视图。
-- `profiles/iluvatar-bi-v150.yaml`、`profiles/ascend-910b.yaml` 和 `profiles/metax-c500.yaml` 是当前 profile 样本。
+- `profiles/iluvatar-bi-v150.yaml`、`profiles/ascend-910b.yaml`、`profiles/metax-c500.yaml` 和 `profiles/nvidia-a100.yaml` 是当前 profile 样本。
 - runtime handler 和 RuntimeClass 已统一为 `xpu-runtime`。
 - DaemonSet/RuntimeClass 可由 profile 渲染，`make deploy` 是当前部署入口。
 - runtime 已支持基于 profile selector env 注入 OCI `linux.devices` 和 device cgroup。
@@ -33,6 +33,7 @@
 - hook 已支持 profile artifact 注入、`ld.so.conf.d` 写入和 `ldconfig`。
 - Ascend 910B 已完成 CANN backend L3 smoke test：`torch_npu` 可用，单卡训练 10 step 完成。
 - Metax C500 已完成 MACA PyTorch backend L3/L4/L5/L6 验证，并已通过 `xpu-runtime` L3 smoke 与 2 卡 DDP 验证。
+- NVIDIA A100 已完成 `xpu-runtime` delegate 验证：统一入口为 `xpu-runtime`，实际设备/驱动注入委托 NVIDIA GPU Operator runtime wrapper。
 
 ## 当前边界
 
@@ -54,4 +55,5 @@ toolkit 不负责：
 
 - `profiles/ascend-910b.yaml` 中仍包含一部分 CANN/toolkit 路径注入。对于官方 CANN backend 镜像，这些路径主要起补充和兼容作用，后续可继续瘦身。
 - `npu-smi` 当前 smoke 日志中仍未出现在容器 `PATH`，但不影响 PyTorch L3 smoke。
+- NVIDIA 当前只验证了 delegate 模式，尚未实现 xpu-toolkit 原生解析 `volume-mounts` selector 或原生注入 NVIDIA driver artifacts。
 - 310P profile 仍是后续工作，不作为当前 910B 闭环阻塞项。

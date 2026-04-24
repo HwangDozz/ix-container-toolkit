@@ -1,0 +1,91 @@
+metadata:
+  name: nvidia-a100
+  vendor: NVIDIA
+  modelFamily: A100
+  version: v1alpha1
+
+runtime:
+  underlyingRuntime: /usr/local/nvidia/toolkit/nvidia-container-runtime
+  hookStage: prestart
+  hookBinary: /usr/local/bin/accelerator-container-hook
+  injectMode: delegate-only
+
+kubernetes:
+  resourceNames:
+    - nvidia.com/a100
+  nodeLabels:
+    nvidia.com/gpu.present: "true"
+    nvidia.com/gpu.family: ampere
+  runtimeClassScheduling:
+    nodeSelector:
+      nvidia.com/gpu.present: "true"
+      nvidia.com/gpu.family: ampere
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+
+device:
+  selectorEnvVars:
+    - NVIDIA_VISIBLE_DEVICES
+  selectorFormats:
+    - volume-mounts
+    - all
+    - none
+    - uuid-list
+    - index-list
+  deviceGlobs:
+    - /dev/nvidia[0-9]*
+  controlDeviceGlobs:
+    - /dev/nvidiactl
+    - /dev/nvidia-uvm
+    - /dev/nvidia-uvm-tools
+    - /dev/nvidia-modeset
+    - /dev/nvidia-caps/*
+  mapping:
+    strategy:
+      primary: delegate-runtime
+      fallback: none
+    command:
+      pathCandidates:
+        - /usr/bin/nvidia-smi
+        - nvidia-smi
+      args:
+        - --query-gpu=index,uuid
+        - --format=csv
+      env: {}
+    parser: csv-header-index-uuid
+  fallbackPolicy:
+    - skip-none
+    - delegate-to-nvidia-runtime
+
+inject:
+  containerRoot: /usr/local/nvidia
+  artifacts:
+    - name: device-nodes
+      kind: device-nodes
+      hostPaths:
+        - /dev/nvidia[0-9]*
+        - /dev/nvidiactl
+        - /dev/nvidia-uvm
+        - /dev/nvidia-uvm-tools
+        - /dev/nvidia-modeset
+        - /dev/nvidia-caps/*
+      containerPath: /dev
+      mode: bind
+    - name: driver-libraries
+      kind: shared-libraries
+      hostPaths:
+        - /usr/lib/x86_64-linux-gnu
+      containerPath: /usr/local/nvidia
+      mode: so-only
+      optional: true
+      excludeDirs: []
+  linker:
+    strategy: ldconfig
+    configPath: /etc/ld.so.conf.d/accelerator-toolkit.conf
+    paths:
+      - /usr/local/nvidia/lib
+      - /usr/local/nvidia/lib64
+    runLdconfig: true
+  extraEnv: {}

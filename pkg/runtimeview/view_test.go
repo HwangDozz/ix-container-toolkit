@@ -65,3 +65,13 @@ func TestDefaultSelectorValue_NonEnvAll(t *testing.T) {
 		t.Fatalf("DefaultSelectorValue = %q, want empty", got)
 	}
 }
+
+func TestDelegateOnly(t *testing.T) {
+	view := New(&config.Config{}, &profile.Profile{
+		Runtime: profile.Runtime{InjectMode: profile.InjectModeDelegateOnly},
+	})
+
+	if !view.DelegateOnly() {
+		t.Fatal("DelegateOnly = false, want true")
+	}
+}

@@ -81,17 +81,20 @@ inject: {}
 - `underlyingRuntime`
 - `hookStage`
 - `hookBinary`
+- `injectMode`
 
 约束：
 
 - `underlyingRuntime` 必填
 - `hookStage` 首版只接受 `prestart`
 - `hookBinary` 必填
+- `injectMode` 可为空；当前仅额外支持 `delegate-only`
 
 当前实现补充约束：
 
 - 集群侧统一只使用一个 `RuntimeClass` / handler：`xpu-runtime`
 - profile 不再单独声明 `handlerName` 或 `runtimeClassName`
+- `injectMode: delegate-only` 表示 `accelerator-container-runtime` 不修改 OCI spec，不注入本项目 hook/device/artifact，直接委托 `underlyingRuntime`
 
 ### 4.3 `kubernetes`
 

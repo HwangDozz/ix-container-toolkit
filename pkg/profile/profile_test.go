@@ -73,6 +73,31 @@ func TestLoad_MetaxC500Profile(t *testing.T) {
 	}
 }
 
+func TestLoad_NvidiaA100Profile(t *testing.T) {
+	profilePath := filepath.Join("..", "..", "profiles", "nvidia-a100.yaml")
+
+	p, err := Load(profilePath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if p.Metadata.Name != "nvidia-a100" {
+		t.Fatalf("Metadata.Name = %q, want %q", p.Metadata.Name, "nvidia-a100")
+	}
+	if p.Runtime.InjectMode != InjectModeDelegateOnly {
+		t.Fatalf("Runtime.InjectMode = %q, want %q", p.Runtime.InjectMode, InjectModeDelegateOnly)
+	}
+	if got := p.Runtime.UnderlyingRuntime; got != "/usr/local/nvidia/toolkit/nvidia-container-runtime" {
+		t.Fatalf("Runtime.UnderlyingRuntime = %q, want %q", got, "/usr/local/nvidia/toolkit/nvidia-container-runtime")
+	}
+	if got := p.Kubernetes.ResourceNames[0]; got != "nvidia.com/a100" {
+		t.Fatalf("Kubernetes.ResourceNames[0] = %q, want %q", got, "nvidia.com/a100")
+	}
+	if got := p.Device.SelectorEnvVars[0]; got != "NVIDIA_VISIBLE_DEVICES" {
+		t.Fatalf("Device.SelectorEnvVars[0] = %q, want %q", got, "NVIDIA_VISIBLE_DEVICES")
+	}
+}
+
 func TestLoad_RejectsInvalidProfile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.yaml")
@@ -251,6 +276,62 @@ func TestValidate_AllowsIndexOnlyProfileWithoutMappingCommand(t *testing.T) {
 
 	if err := p.Validate(); err != nil {
 		t.Fatalf("Validate returned error: %v", err)
+	}
+}
+
+func TestValidate_RejectsInvalidInjectMode(t *testing.T) {
+	p := validMinimalProfile()
+	p.Runtime.InjectMode = "native"
+
+	err := p.Validate()
+	if err == nil {
+		t.Fatal("Validate should fail for invalid inject mode")
+	}
+	if !strings.Contains(err.Error(), `runtime.injectMode must be empty or "delegate-only"`) {
+		t.Fatalf("Validate error = %q, want invalid inject mode", err)
+	}
+}
+
+func validMinimalProfile() *Profile {
+	return &Profile{
+		Metadata: Metadata{
+			Name:    "test",
+			Vendor:  "vendor",
+			Version: "v1alpha1",
+		},
+		Runtime: Runtime{
+			UnderlyingRuntime: "runc",
+			HookStage:         HookStagePrestart,
+			HookBinary:        "/usr/local/bin/hook",
+		},
+		Kubernetes: Kubernetes{
+			ResourceNames: []string{"vendor.com/gpu"},
+		},
+		Device: Device{
+			SelectorEnvVars: []string{"GPU_VISIBLE_DEVICES"},
+			DeviceGlobs:     []string{"/dev/vendor0"},
+			Mapping: DeviceMapping{
+				Strategy: MappingStrategy{
+					Primary:  "env-index-list",
+					Fallback: "none",
+				},
+			},
+		},
+		Inject: Inject{
+			ContainerRoot: "/usr/local/vendor",
+			Artifacts: []Artifact{
+				{
+					Name:          "device-nodes",
+					Kind:          "device-nodes",
+					HostPaths:     []string{"/dev/vendor0"},
+					ContainerPath: "/dev",
+					Mode:          "bind",
+				},
+			},
+			Linker: Linker{
+				ConfigPath: "/etc/ld.so.conf.d/vendor.conf",
+			},
+		},
 	}
 }
 

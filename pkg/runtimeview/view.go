@@ -61,6 +61,10 @@ func (v *View) RuntimeClassName() string {
 	return profile.UnifiedRuntimeName
 }
 
+func (v *View) DelegateOnly() bool {
+	return v.profile.Runtime.InjectMode == profile.InjectModeDelegateOnly
+}
+
 func (v *View) NodeLabels() map[string]string {
 	return v.profile.Kubernetes.NodeLabels
 }

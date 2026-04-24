@@ -61,6 +61,14 @@ func (r *Runtime) Exec(args []string) error {
 		return r.delegate(args)
 	}
 
+	if r.view.DelegateOnly() {
+		r.log.WithFields(logrus.Fields{
+			"bundle":            bundlePath,
+			"underlyingRuntime": r.view.UnderlyingRuntime(),
+		}).Debug("delegate-only profile active, skipping accelerator hook injection")
+		return r.delegate(args)
+	}
+
 	r.log.WithField("bundle", bundlePath).Debug("intercepting container create")
 
 	// Modify the OCI spec to inject our prestart hook.

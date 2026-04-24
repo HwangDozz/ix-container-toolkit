@@ -13,6 +13,64 @@
 
 这些结论已经沉淀到当前 profile/artifact/linker 设计中，原始过程文档已删除。
 
+## NVIDIA A100 xpu-runtime Delegate 验证
+
+验证时间：2026-04-24
+
+镜像：
+
+```text
+crater-harbor.act.buaa.edu.cn/nvcr.io/nvidia/cuda:12.6.2-base-ubi9
+```
+
+installer 镜像：
+
+```text
+crater-harbor.act.buaa.edu.cn/xpu-huangsy/accelerator-toolkit-installer:nvidia-a100-delegate-wrapper-20260424
+```
+
+installer digest：
+
+```text
+sha256:1a80ffd41ab11e23d023a846bd117fb60a1b2ec3fdfa0daa7fba6d9286eaf0e4
+```
+
+Job：
+
+```text
+crater-workspace/nvidia-a100-runtime-query
+crater-workspace/nvidia-a100-xpu-runtime-query
+```
+
+节点：
+
+```text
+inspur-gpu-04
+```
+
+资源规格：
+
+- `nvidia.com/a100: 1`
+- `cpu: 2`
+- `memory: 4Gi`
+
+已确认：
+
+- `RuntimeClass nvidia` 基线 Job 通过。
+- `RuntimeClass xpu-runtime` delegate Job 通过。
+- active profile：`profiles/nvidia-a100.yaml`
+- `runtime.injectMode: delegate-only`
+- `underlyingRuntime: /usr/local/nvidia/toolkit/nvidia-container-runtime`
+- 容器内 `NVIDIA_VISIBLE_DEVICES=/var/run/nvidia-container-devices`
+- 容器内只看到 1 张 `NVIDIA A100-PCIE-40GB`
+- `nvidia-smi` 正常。
+- NVIDIA driver libraries 由 NVIDIA runtime 挂载到容器内。
+
+备注：
+
+- 使用 `/usr/bin/nvidia-container-runtime` 作为 underlying runtime 会失败，因为它不能正确处理当前 device plugin 的 `volume-mounts` selector。
+- 首次向 `inspur-gpu-04` 写入 `xpu-runtime` handler 后重启过 containerd；后续更新 active profile/config 不需要重启。
+
 ## Metax C500 MACA PyTorch Backend 验证
 
 验证时间：2026-04-24

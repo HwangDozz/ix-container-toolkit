@@ -39,6 +39,7 @@ accelerator-container-hook
 
 `accelerator-container-runtime` 是底层 OCI runtime 的 shim。它只在 `create` 阶段修改 OCI spec：
 
+- 若 profile 设置 `runtime.injectMode: delegate-only`，直接委托底层 runtime，不修改 OCI spec。
 - 判断容器是否存在 profile selector env，例如 `ASCEND_VISIBLE_DEVICES`。
 - 对 `env-all` profile，在 selector env 缺失时按 profile 默认注入 `all` selector。
 - 注入 `accelerator-container-hook` 为 prestart hook。

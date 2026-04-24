@@ -248,7 +248,6 @@ LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64
 
 问题：
 
-- 当前 profile schema 没有 “delegate-only/no-inject” 语义，需要小幅扩展。
 - 统一入口是 `xpu-runtime`，但真正 NVIDIA 注入仍由 NVIDIA runtime 完成。
 
 ## 建议路径
@@ -260,7 +259,7 @@ LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64
 1. 保留当前 `RuntimeClass nvidia` 作为基线。
 2. 保留 `experiments/nvidia-a100/k8s/query-nvidia-runtime-job.yaml` 作为事实查询清单。
 3. 新增一个 draft `profiles/nvidia-a100.yaml`，先表达 host facts、资源名和 selector 事实。
-4. 在代码上优先实现 “delegate-only/no-inject” profile 开关，让 `xpu-runtime` 能包装 NVIDIA runtime。
+4. 在代码上优先实现 `runtime.injectMode: delegate-only` profile 开关，让 `xpu-runtime` 能包装 NVIDIA runtime。
 5. 用 `runtimeClassName: xpu-runtime` + `nvidia.com/a100: 1` 验证 `nvidia-smi`。
 
 第二阶段再评估是否让 xpu-toolkit 自己完整注入 NVIDIA：
@@ -278,3 +277,73 @@ LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64
 ```
 
 等 `xpu-runtime` 包装路径验证通过后，再决定是否实现更重的 native NVIDIA artifact 注入。
+
+## 当前落地状态
+
+已新增 draft profile：
+
+```text
+profiles/nvidia-a100.yaml
+```
+
+该 profile 使用：
+
+```yaml
+runtime:
+  underlyingRuntime: /usr/local/nvidia/toolkit/nvidia-container-runtime
+  injectMode: delegate-only
+```
+
+这表示 `xpu-runtime` 只作为统一入口包装 NVIDIA GPU Operator 安装的 container runtime wrapper，不修改 OCI spec，也不运行本项目 hook。
+
+## xpu-runtime delegate 验证
+
+验证时间：2026-04-24
+
+installer 镜像：
+
+```text
+crater-harbor.act.buaa.edu.cn/xpu-huangsy/accelerator-toolkit-installer:nvidia-a100-delegate-wrapper-20260424
+```
+
+installer digest：
+
+```text
+sha256:1a80ffd41ab11e23d023a846bd117fb60a1b2ec3fdfa0daa7fba6d9286eaf0e4
+```
+
+安装节点：
+
+```text
+inspur-gpu-04
+```
+
+验证 Job：
+
+```text
+crater-workspace/nvidia-a100-xpu-runtime-query
+experiments/nvidia-a100/k8s/query-xpu-runtime-job.yaml
+```
+
+结果：
+
+- `runtimeClassName: xpu-runtime`
+- resource: `nvidia.com/a100: 1`
+- Job `Completed`
+- 容器内 `NVIDIA_VISIBLE_DEVICES=/var/run/nvidia-container-devices`
+- 容器内 `LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64`
+- 容器内只看到 1 个分配到的 GPU 设备节点，例如 `/dev/nvidia1`
+- `nvidia-smi` 正常，只显示 1 张 `NVIDIA A100-PCIE-40GB`
+- `nvidia-smi --query-gpu=index,uuid,name --format=csv` 输出 1 张卡：
+
+```text
+index, uuid, name
+0, GPU-c9db5c06-61c6-01b7-b9aa-20307600482c, NVIDIA A100-PCIE-40GB
+```
+
+调试记录：
+
+- 首次 profile 使用 `/usr/bin/nvidia-container-runtime` 失败。
+- 失败原因：该路径没有复用 GPU Operator 为 `RuntimeClass nvidia` 配置的 wrapper 行为，会把 `NVIDIA_VISIBLE_DEVICES=/var/run/nvidia-container-devices` 当成 UUID/index 解析。
+- 改为 `/usr/local/nvidia/toolkit/nvidia-container-runtime` 后通过。
+- 首次安装后需要重启 `inspur-gpu-04` 的 containerd 才加载新写入的 `xpu-runtime` handler；后续只改 active profile/config 不需要重启。

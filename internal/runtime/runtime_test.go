@@ -391,6 +391,43 @@ func TestInjectHook_SkipsWhenNoGPU(t *testing.T) {
 	}
 }
 
+func TestExec_DelegateOnlySkipsSpecMutation(t *testing.T) {
+	bundleDir := t.TempDir()
+	spec := specs.Spec{
+		Version: "1.0.0",
+		Root:    &specs.Root{Path: "rootfs"},
+		Process: &specs.Process{
+			Env: []string{"NVIDIA_VISIBLE_DEVICES=/var/run/nvidia-container-devices"},
+		},
+	}
+	writeSpec(t, bundleDir, spec)
+
+	prof := &profile.Profile{
+		Runtime: profile.Runtime{InjectMode: profile.InjectModeDelegateOnly},
+		Device: profile.Device{
+			SelectorEnvVars: []string{"NVIDIA_VISIBLE_DEVICES"},
+		},
+	}
+	cfg := &config.Config{
+		UnderlyingRuntime: "true",
+		HookPath:          "/usr/bin/accelerator-container-hook",
+		LogLevel:          "debug",
+	}
+	r := testRuntime(cfg, prof)
+
+	if err := r.Exec([]string{"accelerator-container-runtime", "create", "--bundle", bundleDir, "container-id"}); err != nil {
+		t.Fatalf("Exec returned error: %v", err)
+	}
+
+	modified := readSpec(t, bundleDir)
+	if modified.Hooks != nil && len(modified.Hooks.Prestart) > 0 { //nolint:staticcheck
+		t.Fatal("delegate-only profile should not inject prestart hooks")
+	}
+	if got := modified.Process.Env; len(got) != 1 || got[0] != "NVIDIA_VISIBLE_DEVICES=/var/run/nvidia-container-devices" {
+		t.Fatalf("Process.Env = %v, want original NVIDIA_VISIBLE_DEVICES only", got)
+	}
+}
+
 func TestInjectHook_PrependsBefore_ExistingHooks(t *testing.T) {
 	bundleDir := t.TempDir()
 	existing := specs.Hook{Path: "/usr/bin/existing-hook"}
