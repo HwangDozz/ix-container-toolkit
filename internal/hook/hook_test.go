@@ -31,6 +31,15 @@ func defaultProfile(t *testing.T) *profile.Profile {
 	return prof
 }
 
+func metaxProfile(t *testing.T) *profile.Profile {
+	t.Helper()
+	prof, err := profile.Load(filepath.Join("..", "..", "profiles", "metax-c500.yaml"))
+	if err != nil {
+		t.Fatalf("profile.Load returned error: %v", err)
+	}
+	return prof
+}
+
 func defaultCfg(t *testing.T, prof *profile.Profile) *config.Config {
 	t.Helper()
 	cfg, err := config.DefaultsFromProfile(prof)
@@ -65,6 +74,19 @@ func TestVisibleDevices_NotSet(t *testing.T) {
 	}
 	if got := h.visibleDevices(spec); got != "" {
 		t.Errorf("visibleDevices = %q, want \"\"", got)
+	}
+}
+
+func TestVisibleDevices_DefaultEnvAllProfile(t *testing.T) {
+	prof := metaxProfile(t)
+	h := testHook(defaultCfg(t, prof), prof)
+	spec := &specs.Spec{
+		Process: &specs.Process{
+			Env: []string{"PATH=/usr/bin", "HOME=/root"},
+		},
+	}
+	if got := h.visibleDevices(spec); got != "all" {
+		t.Errorf("visibleDevices = %q, want %q", got, "all")
 	}
 }
 

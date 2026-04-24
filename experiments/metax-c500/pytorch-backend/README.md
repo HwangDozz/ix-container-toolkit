@@ -42,7 +42,7 @@ kubectl apply -f experiments/metax-c500/pytorch-backend/k8s/xpu-runtime-smoke-jo
 kubectl apply -f experiments/metax-c500/pytorch-backend/k8s/xpu-runtime-train-ddp-2card-job.yaml
 ```
 
-The xpu-runtime smoke job explicitly sets `METAX_VISIBLE_DEVICES=all` because the current runtime shim only injects the hook when a profile selector env is already present in the OCI spec.
+For `profiles/metax-c500.yaml`, `xpu-runtime` defaults the profile selector to `METAX_VISIBLE_DEVICES=all` because the profile declares `mapping.strategy.primary: env-all`. The xpu-runtime jobs therefore do not need to set `METAX_VISIBLE_DEVICES` manually.
 
 ## xpu-runtime Installer
 

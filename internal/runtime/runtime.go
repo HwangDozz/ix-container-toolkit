@@ -103,6 +103,7 @@ func (r *Runtime) injectHook(bundle string) error {
 	// Prepend our hook so it runs before any user-defined prestart hooks.
 	spec.Hooks.Prestart = append([]specs.Hook{hook}, spec.Hooks.Prestart...) //nolint:staticcheck
 
+	r.injectDefaultSelectorEnv(&spec)
 	r.injectExtraEnv(&spec)
 	if err := r.injectLinuxDevices(&spec); err != nil {
 		return err
@@ -152,6 +153,25 @@ func (r *Runtime) injectExtraEnv(spec *specs.Spec) {
 	}
 }
 
+func (r *Runtime) injectDefaultSelectorEnv(spec *specs.Spec) {
+	defaultSelectorValue := r.view.DefaultSelectorValue()
+	if spec.Process == nil || defaultSelectorValue == "" {
+		return
+	}
+	if _, ok := r.selectorEnvValue(spec); ok {
+		return
+	}
+	selectorEnvVars := r.view.SelectorEnvVars()
+	if len(selectorEnvVars) == 0 {
+		return
+	}
+	spec.Process.Env = append(spec.Process.Env, selectorEnvVars[0]+"="+defaultSelectorValue)
+	r.log.WithFields(logrus.Fields{
+		"env":   selectorEnvVars[0],
+		"value": defaultSelectorValue,
+	}).Info("injected default accelerator selector env from profile")
+}
+
 func (r *Runtime) injectLinuxDevices(spec *specs.Spec) error {
 	visibleDevices := r.visibleDevices(spec)
 	if strings.EqualFold(strings.TrimSpace(visibleDevices), "none") {
@@ -193,18 +213,26 @@ func (r *Runtime) injectLinuxDevices(spec *specs.Spec) error {
 }
 
 func (r *Runtime) visibleDevices(spec *specs.Spec) string {
+	value, ok := r.selectorEnvValue(spec)
+	if ok {
+		return value
+	}
+	return r.view.DefaultSelectorValue()
+}
+
+func (r *Runtime) selectorEnvValue(spec *specs.Spec) (string, bool) {
 	if spec.Process == nil {
-		return ""
+		return "", false
 	}
 	for _, selectorEnv := range r.view.SelectorEnvVars() {
 		prefix := selectorEnv + "="
 		for _, env := range spec.Process.Env {
 			if strings.HasPrefix(env, prefix) {
-				return strings.TrimPrefix(env, prefix)
+				return strings.TrimPrefix(env, prefix), true
 			}
 		}
 	}
-	return ""
+	return "", false
 }
 
 func (r *Runtime) controlDevicePaths() []string {
@@ -309,15 +337,10 @@ func (r *Runtime) containerRequestsGPU(spec *specs.Spec) bool {
 		return false
 	}
 
-	for _, selectorEnv := range r.view.SelectorEnvVars() {
-		envKey := selectorEnv + "="
-		for _, env := range spec.Process.Env {
-			if len(env) >= len(envKey) && env[:len(envKey)] == envKey {
-				return true
-			}
-		}
+	if _, ok := r.selectorEnvValue(spec); ok {
+		return true
 	}
-	return false
+	return r.view.DefaultSelectorValue() != ""
 }
 
 // delegate exec-replaces the current process with the underlying OCI runtime.

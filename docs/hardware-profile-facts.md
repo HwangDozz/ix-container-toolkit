@@ -96,10 +96,10 @@ greatwall-02
 - MACA / MXDriver bin 目录
 - `MACA_*`、`METAX_MXDRIVER_PREFER`、`LD_LIBRARY_PATH`、`LIBRARY_PATH`
 
-当前 xpu-runtime 接入采用显式 selector：
+当前 profile 采用 `env-all` 策略：
 
 ```text
 METAX_VISIBLE_DEVICES=all
 ```
 
-原因是当前 Metax device plugin/厂商 runtime 路径没有在 Pod spec 中暴露类似 `ASCEND_VISIBLE_DEVICES` 的 selector env；而本项目 runtime 只有看到 profile selector env 才会注入 hook。
+如果容器没有显式设置 `METAX_VISIBLE_DEVICES`，runtime 会按 profile 默认注入 `all`，再触发 hook 和 OCI device 注入。显式设置 `METAX_VISIBLE_DEVICES=none` 仍表示跳过设备注入。

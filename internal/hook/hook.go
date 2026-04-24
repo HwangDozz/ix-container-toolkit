@@ -112,7 +112,7 @@ func (h *Hook) visibleDevices(spec *specs.Spec) string {
 			}
 		}
 	}
-	return ""
+	return h.view.DefaultSelectorValue()
 }
 
 // mountSharedLibraries walks hostDir (non-recursively) and bind-mounts only

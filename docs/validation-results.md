@@ -125,7 +125,7 @@ xpu-runtime 两卡 DDP 结果：
 
 - `4Gi` 内存规格会在 Python/torch 初始化阶段被 OOM kill。
 - `1` 张 GPU 规格下，MACA PyTorch 曾出现设备枚举断言；当前可复现通过规格为 `2` 张 GPU。
-- `xpu-runtime` 当前需要显式 `METAX_VISIBLE_DEVICES=all` 才会触发 runtime/hook 注入。
+- 以上 xpu-runtime 结果来自显式 `METAX_VISIBLE_DEVICES=all` 的验证；后续代码已支持 `env-all` 默认 selector，仍需用不含该 env 的 Job 重新验证。
 - `greatwall-02` 需要重启 containerd 才会加载新写入的 `xpu-runtime` handler。
 
 ## Iluvatar BI-V150 Backend 初测

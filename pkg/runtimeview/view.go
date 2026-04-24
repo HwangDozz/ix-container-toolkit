@@ -1,6 +1,8 @@
 package runtimeview
 
 import (
+	"strings"
+
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/config"
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/device"
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
@@ -65,6 +67,21 @@ func (v *View) NodeLabels() map[string]string {
 
 func (v *View) SelectorEnvVars() []string {
 	return v.profile.Device.SelectorEnvVars
+}
+
+func (v *View) DefaultSelectorValue() string {
+	if v == nil || v.profile == nil {
+		return ""
+	}
+	if strings.ToLower(strings.TrimSpace(v.profile.Device.Mapping.Strategy.Primary)) != "env-all" {
+		return ""
+	}
+	for _, format := range v.profile.Device.SelectorFormats {
+		if strings.ToLower(strings.TrimSpace(format)) == "all" {
+			return "all"
+		}
+	}
+	return ""
 }
 
 func (v *View) ExtraEnv() map[string]string {

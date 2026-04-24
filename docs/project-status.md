@@ -29,6 +29,7 @@
 - runtime handler 和 RuntimeClass 已统一为 `xpu-runtime`。
 - DaemonSet/RuntimeClass 可由 profile 渲染，`make deploy` 是当前部署入口。
 - runtime 已支持基于 profile selector env 注入 OCI `linux.devices` 和 device cgroup。
+- runtime 已支持 `env-all` profile 的默认 selector 注入，避免 Metax C500 这类设备必须由用户手写 `METAX_VISIBLE_DEVICES=all`。
 - hook 已支持 profile artifact 注入、`ld.so.conf.d` 写入和 `ldconfig`。
 - Ascend 910B 已完成 CANN backend L3 smoke test：`torch_npu` 可用，单卡训练 10 step 完成。
 - Metax C500 已完成 MACA PyTorch backend L3/L4/L5/L6 验证，并已通过 `xpu-runtime` L3 smoke 与 2 卡 DDP 验证。
@@ -53,5 +54,5 @@ toolkit 不负责：
 
 - `profiles/ascend-910b.yaml` 中仍包含一部分 CANN/toolkit 路径注入。对于官方 CANN backend 镜像，这些路径主要起补充和兼容作用，后续可继续瘦身。
 - `npu-smi` 当前 smoke 日志中仍未出现在容器 `PATH`，但不影响 PyTorch L3 smoke。
-- Metax C500 的 xpu-runtime 接入当前需要显式设置 `METAX_VISIBLE_DEVICES=all` 触发 hook；自动从扩展资源推导 selector 仍需单独设计。
+- Metax C500 的 `env-all` 默认 selector 已有单元测试覆盖，但仍需在 `greatwall-02` 上用不含 `METAX_VISIBLE_DEVICES` 的 xpu-runtime Job 重新验证。
 - 310P profile 仍是后续工作，不作为当前 910B 闭环阻塞项。

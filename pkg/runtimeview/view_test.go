@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/config"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
 )
 
 func TestLoad_WithProfile(t *testing.T) {
@@ -32,5 +33,35 @@ func TestLoad_RequiresProfile(t *testing.T) {
 	}
 	if !errors.Is(err, config.ErrProfileRequired) {
 		t.Fatalf("Load error = %v, want ErrProfileRequired", err)
+	}
+}
+
+func TestDefaultSelectorValue_EnvAll(t *testing.T) {
+	view := New(&config.Config{}, &profile.Profile{
+		Device: profile.Device{
+			SelectorFormats: []string{"all", "none"},
+			Mapping: profile.DeviceMapping{
+				Strategy: profile.MappingStrategy{Primary: "env-all"},
+			},
+		},
+	})
+
+	if got := view.DefaultSelectorValue(); got != "all" {
+		t.Fatalf("DefaultSelectorValue = %q, want %q", got, "all")
+	}
+}
+
+func TestDefaultSelectorValue_NonEnvAll(t *testing.T) {
+	view := New(&config.Config{}, &profile.Profile{
+		Device: profile.Device{
+			SelectorFormats: []string{"all", "none"},
+			Mapping: profile.DeviceMapping{
+				Strategy: profile.MappingStrategy{Primary: "env-index-list"},
+			},
+		},
+	})
+
+	if got := view.DefaultSelectorValue(); got != "" {
+		t.Fatalf("DefaultSelectorValue = %q, want empty", got)
 	}
 }

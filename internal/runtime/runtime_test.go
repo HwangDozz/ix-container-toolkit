@@ -31,6 +31,15 @@ func defaultProfile(t *testing.T) *profile.Profile {
 	return prof
 }
 
+func metaxProfile(t *testing.T) *profile.Profile {
+	t.Helper()
+	prof, err := profile.Load(filepath.Join("..", "..", "profiles", "metax-c500.yaml"))
+	if err != nil {
+		t.Fatalf("profile.Load returned error: %v", err)
+	}
+	return prof
+}
+
 func defaultCfg(t *testing.T, prof *profile.Profile) *config.Config {
 	t.Helper()
 	cfg, err := config.DefaultsFromProfile(prof)
@@ -188,6 +197,22 @@ func TestContainerRequestsGPU_WithoutEnv(t *testing.T) {
 	}
 }
 
+func TestContainerRequestsGPU_DefaultEnvAllProfile(t *testing.T) {
+	prof := metaxProfile(t)
+	r := testRuntime(defaultCfg(t, prof), prof)
+	spec := &specs.Spec{
+		Process: &specs.Process{
+			Env: []string{"PATH=/usr/bin"},
+		},
+	}
+	if !r.containerRequestsGPU(spec) {
+		t.Error("expected containerRequestsGPU = true for env-all profile")
+	}
+	if got := r.visibleDevices(spec); got != "all" {
+		t.Fatalf("visibleDevices = %q, want %q", got, "all")
+	}
+}
+
 func TestContainerRequestsGPU_NilProcess(t *testing.T) {
 	prof := defaultProfile(t)
 	r := testRuntime(defaultCfg(t, prof), prof)
@@ -303,6 +328,43 @@ func TestInjectHook_InjectsWhenGPURequested(t *testing.T) {
 	}
 	if modified.Hooks.Prestart[0].Path != cfg.HookPath { //nolint:staticcheck
 		t.Errorf("hook path = %q, want %q", modified.Hooks.Prestart[0].Path, cfg.HookPath) //nolint:staticcheck
+	}
+}
+
+func TestInjectHook_DefaultEnvAllProfileInjectsSelectorEnv(t *testing.T) {
+	bundleDir := t.TempDir()
+	spec := specs.Spec{
+		Version: "1.0.0",
+		Root:    &specs.Root{Path: "rootfs"},
+		Process: &specs.Process{
+			Env: []string{"PATH=/usr/bin"},
+		},
+	}
+	writeSpec(t, bundleDir, spec)
+
+	prof := metaxProfile(t)
+	cfg := defaultCfg(t, prof)
+	cfg.HookPath = "/usr/bin/accelerator-container-hook"
+	cfg.Hook.DisableRequire = true
+	r := testRuntime(cfg, prof)
+
+	if err := r.injectHook(bundleDir); err != nil {
+		t.Fatalf("injectHook returned error: %v", err)
+	}
+
+	modified := readSpec(t, bundleDir)
+	if modified.Hooks == nil || len(modified.Hooks.Prestart) == 0 { //nolint:staticcheck
+		t.Fatal("expected prestart hooks to be injected")
+	}
+	envSet := map[string]string{}
+	for _, env := range modified.Process.Env {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			envSet[parts[0]] = parts[1]
+		}
+	}
+	if envSet["METAX_VISIBLE_DEVICES"] != "all" {
+		t.Fatalf("METAX_VISIBLE_DEVICES = %q, want %q", envSet["METAX_VISIBLE_DEVICES"], "all")
 	}
 }
 

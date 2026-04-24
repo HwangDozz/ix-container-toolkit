@@ -149,6 +149,8 @@ inject: {}
 - `command` / `env`：用于 index、UUID 或厂商命令可解析的 selector
 - `env-all`：用于只支持 `all` / `none` selector 的设备族，运行时按 profile 的 device globs 注入全部匹配设备
 
+对 `env-all` profile，如果容器 OCI spec 中没有显式 selector env，runtime 会把第一个 `selectorEnvVars` 注入为 `all`，并以此触发 hook。
+
 ### 4.5 `inject`
 
 用途：

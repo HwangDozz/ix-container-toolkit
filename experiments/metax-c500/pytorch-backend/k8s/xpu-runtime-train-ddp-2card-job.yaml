@@ -18,9 +18,6 @@ spec:
         - name: train
           image: cr.metax-tech.com/public-library/maca-pytorch:3.5.3.6-torch2.4-py310-kylinv10-arm64
           imagePullPolicy: IfNotPresent
-          env:
-            - name: METAX_VISIBLE_DEVICES
-              value: all
           command:
             - /opt/conda/bin/python3
             - -m
