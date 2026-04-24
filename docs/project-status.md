@@ -34,6 +34,7 @@
 - Ascend 910B 已完成 CANN backend L3 smoke test：`torch_npu` 可用，单卡训练 10 step 完成。
 - Metax C500 已完成 MACA PyTorch backend L3/L4/L5/L6 验证，并已通过 `xpu-runtime` L3 smoke 与 2 卡 DDP 验证。
 - NVIDIA A100 已完成 `xpu-runtime` delegate 验证：统一入口为 `xpu-runtime`，实际设备/驱动注入委托 NVIDIA GPU Operator runtime wrapper。
+- 已新增 `accelerator-profile-render cdi` 原型，可从现有 profile 渲染 CDI spec 结构，用于验证 profile 作为 vendor-neutral environment IR 的多后端生成能力。
 
 ## 当前边界
 
@@ -56,4 +57,5 @@ toolkit 不负责：
 - `profiles/ascend-910b.yaml` 中仍包含一部分 CANN/toolkit 路径注入。对于官方 CANN backend 镜像，这些路径主要起补充和兼容作用，后续可继续瘦身。
 - `npu-smi` 当前 smoke 日志中仍未出现在容器 `PATH`，但不影响 PyTorch L3 smoke。
 - NVIDIA 当前只验证了 delegate 模式，尚未实现 xpu-toolkit 原生解析 `volume-mounts` selector 或原生注入 NVIDIA driver artifacts。
+- CDI 渲染目前是静态原型，不展开 glob，不按单卡生成 CDI device，也不能完整表达 hook 的 `so-only`、linker 和 `ldconfig` 语义。
 - 310P profile 仍是后续工作，不作为当前 910B 闭环阻塞项。

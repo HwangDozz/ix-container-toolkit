@@ -24,6 +24,7 @@
 - profile 文件存放在仓库 `profiles/` 目录
 - 每个厂商/产品线一个文件
 - 文件由显式路径加载，不做自动发现
+- 同一份 profile 可渲染当前 Kubernetes 部署清单，也可渲染 CDI spec 原型
 
 示例：
 
@@ -95,6 +96,7 @@ inject: {}
 - 集群侧统一只使用一个 `RuntimeClass` / handler：`xpu-runtime`
 - profile 不再单独声明 `handlerName` 或 `runtimeClassName`
 - `injectMode: delegate-only` 表示 `accelerator-container-runtime` 不修改 OCI spec，不注入本项目 hook/device/artifact，直接委托 `underlyingRuntime`
+- CDI 渲染后端不会读取 `runtime.injectMode`，它只消费 profile 中的 device、artifact 和 env 描述生成独立 CDI spec 原型
 
 ### 4.3 `kubernetes`
 
@@ -189,6 +191,8 @@ inject: {}
 - `copy`
 - `so-only`
 
+当前 CDI 渲染原型会把非 `device-nodes` artifact 渲染为只读 bind mount。`so-only` 和 `copy` 语义还不能被静态 CDI mount 完整表达，后续需要节点侧展开器把目录解析为具体文件或选择继续走 hook backend。
+
 `linker` 包含：
 
 - `strategy`
@@ -227,7 +231,26 @@ inject: {}
 - `ixsmi` 是否真实可执行
 - `containerd`/`RuntimeClass` 是否已部署
 
-## 六、Iluvatar 映射原则
+## 六、CDI 渲染原型
+
+`accelerator-profile-render cdi --profile <profile>` 会从 profile 渲染一个 CDI spec 原型：
+
+- `cdiVersion` 当前为 `1.1.0`
+- `kind` 使用 `kubernetes.resourceNames[0]`
+- 默认生成一个名为 `all` 的 CDI device
+- `device-nodes` artifact 会进入 `containerEdits.deviceNodes`
+- 其他 artifact 会进入 `containerEdits.mounts`
+- `inject.extraEnv` 会进入 `containerEdits.env`
+- 如果 profile 支持 `all` selector，会额外注入第一个 selector env，例如 `METAX_VISIBLE_DEVICES=all`
+
+当前限制：
+
+- 不访问宿主机，不展开 glob。
+- 不按单卡生成多个 CDI device。
+- 不执行 `ldconfig`，也不写 linker 配置文件。
+- `so-only` 目录过滤仍属于 hook backend 的能力。
+
+## 七、Iluvatar 映射原则
 
 首版 schema 应能无歧义承载当前 Iluvatar 事实：
 

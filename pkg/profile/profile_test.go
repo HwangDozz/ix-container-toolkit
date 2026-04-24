@@ -418,3 +418,41 @@ func TestRenderBundleYAML(t *testing.T) {
 		t.Fatalf("bundle missing DaemonSet: %s", out)
 	}
 }
+
+func TestRenderCDISpecYAML(t *testing.T) {
+	p, err := Load(filepath.Join("..", "..", "profiles", "metax-c500.yaml"))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	data, err := p.RenderCDISpecYAML("")
+	if err != nil {
+		t.Fatalf("RenderCDISpecYAML returned error: %v", err)
+	}
+
+	out := string(data)
+	if !strings.Contains(out, "cdiVersion: 1.1.0") {
+		t.Fatalf("rendered CDI spec missing version: %s", out)
+	}
+	if !strings.Contains(out, "kind: metax-tech.com/gpu") {
+		t.Fatalf("rendered CDI spec missing kind: %s", out)
+	}
+	if !strings.Contains(out, "name: all") {
+		t.Fatalf("rendered CDI spec missing default device name: %s", out)
+	}
+	if !strings.Contains(out, "METAX_VISIBLE_DEVICES=all") {
+		t.Fatalf("rendered CDI spec missing selector env: %s", out)
+	}
+	if !strings.Contains(out, "MACA_PATH=/opt/maca") {
+		t.Fatalf("rendered CDI spec missing extra env: %s", out)
+	}
+	if !strings.Contains(out, "hostPath: /dev/mxcd") {
+		t.Fatalf("rendered CDI spec missing control device node: %s", out)
+	}
+	if !strings.Contains(out, "containerPath: /opt/maca/ompi/lib") {
+		t.Fatalf("rendered CDI spec missing derived mount target: %s", out)
+	}
+	if !strings.Contains(out, "- rbind") || !strings.Contains(out, "- ro") {
+		t.Fatalf("rendered CDI spec missing mount options: %s", out)
+	}
+}

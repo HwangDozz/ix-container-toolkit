@@ -112,6 +112,39 @@ func main() {
 					return nil
 				},
 			},
+			{
+				Name:  "cdi",
+				Usage: "render a CDI spec prototype from a generic accelerator profile",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:     "profile",
+						Aliases:  []string{"p"},
+						Usage:    "path to generic profile YAML",
+						Required: true,
+					},
+					&cli.StringFlag{
+						Name:  "device-name",
+						Usage: "CDI device name to render",
+						Value: "all",
+					},
+				},
+				Action: func(ctx *cli.Context) error {
+					p, err := profile.Load(ctx.String("profile"))
+					if err != nil {
+						return fmt.Errorf("loading profile: %w", err)
+					}
+
+					data, err := p.RenderCDISpecYAML(ctx.String("device-name"))
+					if err != nil {
+						return fmt.Errorf("rendering cdi spec: %w", err)
+					}
+
+					if _, err := os.Stdout.Write(data); err != nil {
+						return fmt.Errorf("writing output: %w", err)
+					}
+					return nil
+				},
+			},
 		},
 	}
 

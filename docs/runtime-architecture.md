@@ -49,6 +49,26 @@ accelerator-container-hook
 
 非 `create` 子命令直接透传到底层 runtime。
 
+## CDI 渲染后端
+
+`accelerator-profile-render cdi` 可以从同一份 profile 渲染 CDI spec 原型。
+
+当前 CDI 后端不替换 runtime/hook 执行链路，也不会改动 containerd 配置。它的定位是验证 profile 作为 vendor-neutral environment IR 时，是否能同时生成标准 CDI 设备描述。
+
+当前行为：
+
+- 使用 `kubernetes.resourceNames[0]` 作为 CDI `kind`。
+- 默认生成一个 `all` 设备。
+- 将 profile device nodes 渲染为 CDI `deviceNodes`。
+- 将 profile artifacts 渲染为 CDI `mounts`。
+- 将 profile extra env 渲染为 CDI `env`。
+
+当前限制：
+
+- 不访问宿主机，因此不会展开 glob。
+- 不生成单卡粒度的 CDI device。
+- 不表达 hook 中的 `so-only` 文件过滤、linker 配置写入和 `ldconfig`。
+
 ## hook
 
 `accelerator-container-hook` 在 prestart 阶段执行：

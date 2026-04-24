@@ -10,7 +10,7 @@ GOARCH ?= $(shell go env GOARCH)
 LDFLAGS := -s -w
 BINARY_PLATFORM_DIR := bin/$(GOOS)-$(GOARCH)
 
-.PHONY: all build test docker-build docker-push docker-build-prebuilt docker-push-prebuilt docker-build-multiarch docker-push-multiarch docker-build-prebuilt-multiarch docker-push-prebuilt-multiarch deploy undeploy clean render-runtimeclass render-daemonset render-bundle
+.PHONY: all build test docker-build docker-push docker-build-prebuilt docker-push-prebuilt docker-build-multiarch docker-push-multiarch docker-build-prebuilt-multiarch docker-push-prebuilt-multiarch deploy undeploy clean render-runtimeclass render-daemonset render-bundle render-cdi
 
 all: build
 
@@ -49,6 +49,10 @@ render-daemonset:
 ## Render full deploy bundle from a generic profile
 render-bundle:
 	go run ./cmd/accelerator-profile-render bundle --profile $(PROFILE) --image $(IMAGE)
+
+## Render a CDI spec prototype from a generic profile
+render-cdi:
+	go run ./cmd/accelerator-profile-render cdi --profile $(PROFILE)
 
 ## Build the installer container image
 docker-build:
