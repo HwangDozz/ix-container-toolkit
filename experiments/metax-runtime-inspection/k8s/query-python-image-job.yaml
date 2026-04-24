@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: metax-maca-pytorch-query-v3
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      runtimeClassName: metax
+      nodeSelector:
+        kubernetes.io/hostname: greatwall-02
+      containers:
+        - name: query
+          image: cr.metax-tech.com/public-library/maca-pytorch:3.5.3.6-torch2.4-py310-kylinv10-arm64
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euxo pipefail
+              echo "=== env ==="
+              env | sort | grep -E 'METAX|MACA|LD_LIBRARY|PATH|CUDA|MCCL|NCCL' || true
+              echo "=== dev ==="
+              ls -l /dev | grep -E 'metax|mx|dri|vfio' || true
+              echo "=== mx-smi ==="
+              which mx-smi || true
+              mx-smi || true
+              echo "=== python ==="
+              python3 --version
+              python3 - <<'PY'
+              import importlib.util
+              import os
+
+              print("torch_found", importlib.util.find_spec("torch") is not None)
+              print("torchvision_found", importlib.util.find_spec("torchvision") is not None)
+              print("torchaudio_found", importlib.util.find_spec("torchaudio") is not None)
+              print("LD_LIBRARY_PATH", os.environ.get("LD_LIBRARY_PATH", ""))
+
+              import torch
+
+              print("torch_version", torch.__version__)
+              print("torch_cuda_version", getattr(torch.version, "cuda", None))
+              print("cuda_available", torch.cuda.is_available())
+              print("cuda_device_count", torch.cuda.device_count())
+              if torch.cuda.is_available():
+                  print("cuda_device_name", torch.cuda.get_device_name(0))
+                  device = torch.device("cuda:0")
+                  x = torch.ones((2, 2), device=device)
+                  y = x @ x
+                  torch.cuda.synchronize()
+                  print("matmul_sum", y.sum().item())
+              PY
+          resources:
+            limits:
+              metax-tech.com/gpu: "2"
+              cpu: "16"
+              memory: 128Gi
+            requests:
+              metax-tech.com/gpu: "2"
+              cpu: "16"
+              memory: 128Gi

@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: metax-c500-xpu-runtime-installer
+  namespace: kube-system
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: metax-c500-xpu-runtime-installer
+    spec:
+      restartPolicy: Never
+      serviceAccountName: accelerator-toolkit
+      hostPID: true
+      nodeSelector:
+        kubernetes.io/hostname: greatwall-02
+      containers:
+        - name: installer
+          image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/accelerator-toolkit-installer:metax-c500-20260424
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: HOST_BIN_DIR
+              value: /usr/local/bin
+            - name: HOST_CONFIG_DIR
+              value: /etc/accelerator-toolkit
+            - name: HOST_MOUNT
+              value: /host
+            - name: ACCELERATOR_PROFILE_FILE
+              value: /profiles/metax-c500.yaml
+            - name: RESTART_CONTAINERD
+              value: "false"
+            - name: ACCELERATOR_LOG_LEVEL
+              value: info
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+            - name: host-run
+              mountPath: /host/run
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
+        - name: host-run
+          hostPath:
+            path: /run

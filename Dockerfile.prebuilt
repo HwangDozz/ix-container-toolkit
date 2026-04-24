@@ -2,7 +2,8 @@
 # Expects prebuilt binaries under ./bin/<os>-<arch>/ and does not run `go build`
 # or `go mod download` inside Docker.
 
-FROM debian:bookworm-slim AS installer
+ARG BASE_IMAGE=debian:bookworm-slim
+FROM ${BASE_IMAGE} AS installer
 
 ARG TARGETOS=linux
 ARG TARGETARCH

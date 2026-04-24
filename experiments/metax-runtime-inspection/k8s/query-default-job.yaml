@@ -1,0 +1,47 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: metax-ubuntu-default-query
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: greatwall-02
+      containers:
+        - name: query
+          image: crater-harbor.act.buaa.edu.cn/library/ubuntu:22.04
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euxo pipefail
+              echo "=== env ==="
+              env | sort | grep -E 'METAX|MACA|LD_LIBRARY|PATH|CUDA|NCCL|MCCL' || true
+              echo "=== dev ==="
+              ls -l /dev | grep -E 'metax|mx|dri|vfio' || true
+              echo "=== host-runtime-paths ==="
+              ls -ld /run/metax /var/lib/metax /opt/maca /usr/local/metax /usr/local/metax/* 2>/dev/null || true
+              echo "=== runtime-bins ==="
+              which mx-smi || true
+              which metax-docker || true
+              which python3 || true
+              echo "=== library-cache ==="
+              ldconfig -p 2>/dev/null | grep -Ei 'maca|metax|mx' | head -n 100 || true
+              echo "=== mounts ==="
+              mount | grep -Ei 'metax|maca|mxdriver|gpu' || true
+              echo "=== files ==="
+              find /run/metax -maxdepth 2 -type f 2>/dev/null | sort | head -n 100 || true
+              find /var/lib/metax -maxdepth 2 \( -type f -o -type l -o -type d \) 2>/dev/null | sort | head -n 200 || true
+          resources:
+            limits:
+              metax-tech.com/gpu: "1"
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              metax-tech.com/gpu: "1"
+              cpu: "2"
+              memory: 4Gi

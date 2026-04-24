@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: metax-c500-containerd-restart
+  namespace: kube-system
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: metax-c500-containerd-restart
+    spec:
+      restartPolicy: Never
+      hostPID: true
+      nodeSelector:
+        kubernetes.io/hostname: greatwall-02
+      containers:
+        - name: restart
+          image: crater-harbor.act.buaa.edu.cn/library/ubuntu:22.04
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          command:
+            - chroot
+            - /host
+            - /usr/bin/systemctl
+            - restart
+            - containerd
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /

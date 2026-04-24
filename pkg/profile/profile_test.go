@@ -48,10 +48,35 @@ func TestLoad_Ascend910BProfile(t *testing.T) {
 	}
 }
 
+func TestLoad_MetaxC500Profile(t *testing.T) {
+	profilePath := filepath.Join("..", "..", "profiles", "metax-c500.yaml")
+
+	p, err := Load(profilePath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if p.Metadata.Name != "metax-c500" {
+		t.Fatalf("Metadata.Name = %q, want %q", p.Metadata.Name, "metax-c500")
+	}
+	if got := p.Kubernetes.ResourceNames[0]; got != "metax-tech.com/gpu" {
+		t.Fatalf("Kubernetes.ResourceNames[0] = %q, want %q", got, "metax-tech.com/gpu")
+	}
+	if got := p.Device.SelectorEnvVars[0]; got != "METAX_VISIBLE_DEVICES" {
+		t.Fatalf("Device.SelectorEnvVars[0] = %q, want %q", got, "METAX_VISIBLE_DEVICES")
+	}
+	if len(p.Device.DeviceGlobs) != 2 {
+		t.Fatalf("len(Device.DeviceGlobs) = %d, want 2", len(p.Device.DeviceGlobs))
+	}
+	if len(p.Device.ControlDeviceGlobs) != 1 || p.Device.ControlDeviceGlobs[0] != "/dev/mxcd" {
+		t.Fatalf("Device.ControlDeviceGlobs = %v, want [/dev/mxcd]", p.Device.ControlDeviceGlobs)
+	}
+}
+
 func TestLoad_RejectsInvalidProfile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.yaml")
-content := `
+	content := `
 metadata:
   name: bad
 runtime:

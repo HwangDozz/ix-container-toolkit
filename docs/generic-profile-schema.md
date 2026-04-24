@@ -144,6 +144,11 @@ inject: {}
 - `mapping.strategy.primary` 必填
 - 若 primary strategy 是命令查询类策略，则 `mapping.command` 与 `mapping.parser` 必填
 
+当前已验证的 selector / mapping 形态：
+
+- `command` / `env`：用于 index、UUID 或厂商命令可解析的 selector
+- `env-all`：用于只支持 `all` / `none` selector 的设备族，运行时按 profile 的 device globs 注入全部匹配设备
+
 ### 4.5 `inject`
 
 用途：

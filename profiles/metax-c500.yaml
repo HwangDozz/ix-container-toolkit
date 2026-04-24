@@ -1,0 +1,107 @@
+metadata:
+  name: metax-c500
+  vendor: Metax
+  modelFamily: C500
+  version: v1alpha1
+
+runtime:
+  underlyingRuntime: runc
+  hookStage: prestart
+  hookBinary: /usr/local/bin/accelerator-container-hook
+
+kubernetes:
+  resourceNames:
+    - metax-tech.com/gpu
+  nodeLabels:
+    metax-tech.com/gpu.installed: "true"
+    metax-tech.com/gpu.product: MXC500
+  runtimeClassScheduling:
+    nodeSelector:
+      metax-tech.com/gpu.installed: "true"
+      metax-tech.com/gpu.product: MXC500
+    tolerations:
+      - key: metax-tech.com/gpu
+        operator: Exists
+        effect: NoSchedule
+
+device:
+  selectorEnvVars:
+    - METAX_VISIBLE_DEVICES
+  selectorFormats:
+    - all
+    - none
+  deviceGlobs:
+    - /dev/dri/card*
+    - /dev/dri/renderD*
+  controlDeviceGlobs:
+    - /dev/mxcd
+  mapping:
+    strategy:
+      primary: env-all
+      fallback: none
+  fallbackPolicy:
+    - skip-none
+    - error-on-empty
+
+inject:
+  containerRoot: /opt/maca
+  artifacts:
+    - name: device-nodes
+      kind: device-nodes
+      hostPaths:
+        - /dev/dri/card*
+        - /dev/dri/renderD*
+        - /dev/mxcd
+      containerPath: /dev
+      mode: bind
+    - name: maca-libraries
+      kind: shared-libraries
+      hostPaths:
+        - /opt/maca/lib
+        - /opt/maca/ompi/lib
+        - /opt/maca/ucx/lib
+      containerPath: /opt/maca
+      mode: so-only
+      optional: true
+      excludeDirs: []
+    - name: mxdriver-libraries
+      kind: shared-libraries
+      hostPaths:
+        - /opt/mxdriver/lib
+      containerPath: /opt/mxdriver
+      mode: so-only
+      optional: true
+      excludeDirs: []
+    - name: maca-binaries
+      kind: directory
+      hostPaths:
+        - /opt/maca/bin
+        - /opt/maca/mxgpu_llvm/bin
+        - /opt/maca/ompi/bin
+        - /opt/maca/ucx/bin
+      containerPath: /opt/maca
+      mode: bind
+      optional: true
+    - name: mxdriver-binaries
+      kind: directory
+      hostPaths:
+        - /opt/mxdriver/bin
+      containerPath: /opt/mxdriver
+      mode: bind
+      optional: true
+  linker:
+    strategy: ldconfig
+    configPath: /etc/ld.so.conf.d/accelerator-toolkit.conf
+    paths:
+      - /opt/maca/lib
+      - /opt/maca/ompi/lib
+      - /opt/maca/ucx/lib
+      - /opt/mxdriver/lib
+    runLdconfig: true
+  extraEnv:
+    MACA_PATH: /opt/maca
+    MACA_CLANG_PATH: /opt/maca/mxgpu_llvm/bin
+    MACA_INSATLL_PREFIX: /var/lib/metax
+    METAX_MXDRIVER_PREFER: /usr/local/metax/mxdriver
+    LIBRARY_PATH: '/opt/mxdriver/lib:'
+    LD_LIBRARY_PATH: '/opt/maca/lib:/opt/maca/ompi/lib:/opt/maca/ucx/lib:/opt/mxdriver/lib:'

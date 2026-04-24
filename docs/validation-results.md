@@ -1,6 +1,6 @@
 # 验证结果
 
-> 更新日期：2026-04-23
+> 更新日期：2026-04-24
 
 ## Iluvatar 早期验证
 
@@ -12,6 +12,121 @@
 - `ld.so.conf.d` 与 `ldconfig` 对动态库发现是必要补充。
 
 这些结论已经沉淀到当前 profile/artifact/linker 设计中，原始过程文档已删除。
+
+## Metax C500 MACA PyTorch Backend 验证
+
+验证时间：2026-04-24
+
+镜像：
+
+```text
+cr.metax-tech.com/public-library/maca-pytorch:3.5.3.6-torch2.4-py310-kylinv10-arm64
+```
+
+Job：
+
+```text
+crater-workspace/metax-c500-backend-smoke-v2
+crater-workspace/metax-c500-portable-train-single
+crater-workspace/metax-c500-portable-train-transformer
+crater-workspace/metax-c500-portable-train-ddp-2card
+crater-workspace/metax-c500-xpu-runtime-smoke
+crater-workspace/metax-c500-xpu-runtime-train-ddp-2card
+```
+
+节点：
+
+```text
+greatwall-02
+```
+
+资源规格：
+
+- `metax-tech.com/gpu: 2`
+- `cpu: 16`
+- `memory: 128Gi`
+
+已确认：
+
+- 所有验证 Job 均 `Completed`
+- `RuntimeClass metax` 可用
+- `/dev/mxcd` 可见
+- `mx-smi` 可见并识别 2 张 `MetaX C500`
+- `torch 2.4.0+metax3.5.3.9`
+- `torch.version.cuda = 11.6`
+- `torch.cuda.is_available() = true`
+- `torch.cuda.device_count() = 2`
+
+L3 smoke 结果：
+
+- 设备：`cuda:0`
+- tensor matmul/backward 完成
+- 10 step MLP 训练完成
+- first loss：`2.3358445167541504`
+- final loss：`2.336742877960205`
+- 结果：通过
+
+L4 单卡 portable CNN 结果：
+
+- 脚本：`experiments/ascend-910b/pytorch-backend/training_tests/portable_resnet_train.py`
+- 设备：`cuda:0`
+- steps：20
+- first loss：`2.415478229522705`
+- final loss：`2.242485284805298`
+- 结果：通过
+
+L6 Tiny Transformer 结果：
+
+- 脚本：`experiments/ascend-910b/pytorch-backend/training_tests/tiny_transformer_train.py`
+- 设备：`cuda:0`
+- steps：20
+- first loss：`7.771679878234863`
+- final loss：`7.821425914764404`
+- 结果：通过
+
+L5 两卡 DDP 结果：
+
+- `torch.distributed.run --nproc_per_node=2`
+- backend：`nccl`
+- world size：2
+- device：`cuda:0` / `cuda:1`
+- steps：20
+- rank 0 final loss：`2.2541959285736084`
+- avg final loss：`2.2903876304626465`
+- 结果：通过
+
+xpu-runtime L3 smoke 结果：
+
+- installer 镜像：`crater-harbor.act.buaa.edu.cn/xpu-huangsy/accelerator-toolkit-installer:metax-c500-20260424`
+- installer digest：`sha256:3afd6f9ed8aa81946a9735e49ffffe0893f2d835f907cafb19f263142e6c8549`
+- active profile：`profiles/metax-c500.yaml`
+- `runtimeClassName: xpu-runtime`
+- selector env：`METAX_VISIBLE_DEVICES=all`
+- runtime shim 注入 OCI devices：`count=5`
+- prestart hook 注入成功
+- `mx-smi` 可见并识别 2 张 `MetaX C500`
+- tensor matmul/backward 完成
+- 10 step MLP 训练完成
+- 结果：通过
+
+xpu-runtime 两卡 DDP 结果：
+
+- `runtimeClassName: xpu-runtime`
+- `torch.distributed.run --nproc_per_node=2`
+- backend：`nccl`
+- world size：2
+- device：`cuda:0` / `cuda:1`
+- steps：20
+- rank 0 final loss：`2.2770137786865234`
+- avg final loss：`2.3143153190612793`
+- 结果：通过
+
+备注：
+
+- `4Gi` 内存规格会在 Python/torch 初始化阶段被 OOM kill。
+- `1` 张 GPU 规格下，MACA PyTorch 曾出现设备枚举断言；当前可复现通过规格为 `2` 张 GPU。
+- `xpu-runtime` 当前需要显式 `METAX_VISIBLE_DEVICES=all` 才会触发 runtime/hook 注入。
+- `greatwall-02` 需要重启 containerd 才会加载新写入的 `xpu-runtime` handler。
 
 ## Iluvatar BI-V150 Backend 初测
 

@@ -1,6 +1,6 @@
 # 项目状态
 
-> 更新日期：2026-04-23
+> 更新日期：2026-04-24
 
 ## 项目目标
 
@@ -25,12 +25,13 @@
 ## 当前已完成
 
 - profile 已成为主输入，核心组件均从 active profile 构造运行视图。
-- `profiles/iluvatar-bi-v150.yaml` 和 `profiles/ascend-910b.yaml` 是当前稳定样本。
+- `profiles/iluvatar-bi-v150.yaml`、`profiles/ascend-910b.yaml` 和 `profiles/metax-c500.yaml` 是当前 profile 样本。
 - runtime handler 和 RuntimeClass 已统一为 `xpu-runtime`。
 - DaemonSet/RuntimeClass 可由 profile 渲染，`make deploy` 是当前部署入口。
 - runtime 已支持基于 profile selector env 注入 OCI `linux.devices` 和 device cgroup。
 - hook 已支持 profile artifact 注入、`ld.so.conf.d` 写入和 `ldconfig`。
 - Ascend 910B 已完成 CANN backend L3 smoke test：`torch_npu` 可用，单卡训练 10 step 完成。
+- Metax C500 已完成 MACA PyTorch backend L3/L4/L5/L6 验证，并已通过 `xpu-runtime` L3 smoke 与 2 卡 DDP 验证。
 
 ## 当前边界
 
@@ -52,4 +53,5 @@ toolkit 不负责：
 
 - `profiles/ascend-910b.yaml` 中仍包含一部分 CANN/toolkit 路径注入。对于官方 CANN backend 镜像，这些路径主要起补充和兼容作用，后续可继续瘦身。
 - `npu-smi` 当前 smoke 日志中仍未出现在容器 `PATH`，但不影响 PyTorch L3 smoke。
+- Metax C500 的 xpu-runtime 接入当前需要显式设置 `METAX_VISIBLE_DEVICES=all` 触发 hook；自动从扩展资源推导 selector 仍需单独设计。
 - 310P profile 仍是后续工作，不作为当前 910B 闭环阻塞项。
