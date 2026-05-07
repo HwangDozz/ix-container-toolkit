@@ -1,0 +1,44 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.bin
+*.out
+
+# Go build output
+*.test
+*.prof
+accelerator-container-hook
+accelerator-container-runtime
+accelerator-installer
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains
+.idea/
+
+# macOS
+.DS_Store
+._*
+
+# Claude Code
+.claude/
+
+# Environment
+.env
+.env.*
+*.env.local
+
+# Logs
+*.log
+logs/
+
+# Temp files
+*.tmp
+*.bak
+*.swp
+*~

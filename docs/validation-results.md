@@ -1,6 +1,6 @@
 # 验证结果
 
-> 更新日期：2026-04-24
+> 更新日期：2026-05-07
 
 ## Iluvatar 早期验证
 
@@ -252,6 +252,7 @@ L5 两卡 DDP 当前状态：
 - P2P/IPC ring 已连通
 - 训练未在预期时间内结束
 - 当前结论：通信初始化通过，训练阶段或后续 collective 仍需排查
+- **后续排查结果**：NCCL P2P 传输层存在 bug，详见下方「Portable GPT-3 验证 > Iluvatar BI-V150 2 卡 DDP」
 
 ## Ascend 910B Profile 验证
 
@@ -354,6 +355,195 @@ experiments/ascend-910b/pytorch-backend/training_tests/tiny_transformer_train.py
 - first loss：`7.815044403076172`
 - final loss：`7.756039619445801`
 - 结果：通过
+
+## Portable GPT-3 验证
+
+验证时间：2026-05-07
+
+模型：MiniGPT3（vocab=4096, d_model=128, nhead=4, layers=4, seq_len=128）
+
+参数量：1,856,256（7.08 MB fp32）
+
+训练脚本：
+
+```text
+experiments/portable-training/portable_gpt3_train.py
+```
+
+### Ascend 910B 2 卡 DDP
+
+镜像：
+
+```text
+crater-harbor.act.buaa.edu.cn/xpu-huangsy/ascend-910b-pytorch-backend:cann851-py311-torch271-npu271post3
+```
+
+节点：`kunlun-02`
+
+资源：`huawei.com/Ascend910: 2`
+
+结果：
+
+- `runtimeClassName: xpu-runtime`
+- `torch.distributed.run --nproc_per_node=2`
+- backend：`hccl`
+- world size：2
+- device：`npu:0` / `npu:1`
+- steps：20
+- batch size：8
+- first loss：`8.463423728942871`
+- final loss：`8.46022891998291`
+- avg final loss：`8.461605072021484`
+- 结果：通过
+
+备注：
+
+- 需要将 `ascend-910b.yaml` profile 的 `driver-libraries` artifact 标记为 `optional: true`，否则 ATB 库路径不存在会导致 hook 失败。
+- 需要精简 active profile，去掉 CANN toolkit 全量注入（backend 镜像已自带），否则容器 rootfs 空间不足。
+
+### Metax C500 2 卡 DDP
+
+镜像：
+
+```text
+cr.metax-tech.com/public-library/maca-pytorch:3.5.3.6-torch2.4-py310-kylinv10-arm64
+```
+
+节点：`greatwall-02`
+
+资源：`metax-tech.com/gpu: 2`
+
+结果：
+
+- `runtimeClassName: metax`
+- `torch.distributed.run --nproc_per_node=2`
+- backend：`nccl`
+- world size：2
+- device：`cuda:0` / `cuda:1`
+- steps：20
+- batch size：8
+- first loss：`8.49490737915039`
+- final loss：`8.461764335632324`
+- avg final loss：`8.461978912353516`
+- 结果：通过
+
+备注：
+
+- MACA PyTorch 在 1 GPU 规格下存在设备枚举断言失败 bug，必须使用 2 GPU 以上规格。
+
+### Iluvatar BI-V150 2 卡 DDP
+
+镜像：
+
+```text
+crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+```
+
+节点：`inspur-01`
+
+资源：`iluvatar.com/gpu: 2`
+
+NCCL 版本：`2.14.3+cuda10.2`
+
+#### 问题 1：NCCL 默认配置 P2P hang
+
+现象：
+
+- `torch.distributed.run --nproc_per_node=2`，backend=`nccl`
+- NCCL communicator init COMPLETE（0.003s），P2P/IPC ring 建立成功
+- all_reduce 提交后无输出，进程 hang，Job 超时（120s activeDeadlineSeconds）
+
+NCCL_DEBUG 分析：
+
+- `NCCL_DEBUG=INFO` + `NCCL_DEBUG_SUBSYS=ALL` 输出显示：
+  - Bootstrap 使用 `eth0:10.244.6.x`
+  - 未找到 IB 设备，回退到 Socket
+  - `NCCL_P2P_LEVEL` 被设为 `LOC`
+  - Channel 和 Trees 拓扑建立成功
+  - AllReduce 提交后无后续输出
+- 结论：hang 在 P2P 数据传输阶段，Iluvatar NCCL P2P 传输层存在 bug
+
+#### 问题 2：禁用 P2P 后 SHM SIGBUS
+
+尝试的 workaround：`NCCL_P2P_DISABLE=1`
+
+现象：
+
+- NCCL init 成功，通道建立使用 `SHM/direct/direct`
+- all_reduce 提交后进程收到 `SIGBUS`（Signal 7），exitcode=-7
+- 两个 rank 均 crash
+
+分析：
+
+- 禁用 P2P 后 NCCL 回退到 SHM（共享内存）传输
+- Iluvatar 的 SHM 传输实现也存在 bug，导致总线错误
+- 需要同时禁用 P2P 和 SHM
+
+#### 问题 3：禁用 P2P + SHM 后 Socket 传输成功
+
+最终 workaround：
+
+```text
+NCCL_P2P_DISABLE=1
+NCCL_SHM_DISABLE=1
+NCCL_SOCKET_IFNAME=eth0
+```
+
+验证结果：
+
+- NCCL 退回到 Socket 传输，init COMPLETE
+- Channel 建立通过 Socket
+- all_reduce 成功：value=3.0（expected 3.0），match=true
+- 大张量 (1024) all_reduce：0.001s
+- GPT-3 2 卡 DDP 通过：20 steps，first_loss=8.495，final_loss=8.462，avg_final_loss=8.462
+- Job Complete，耗时 ~10s
+
+#### gloo backend 验证（备选方案）
+
+- backend：`gloo`
+- all_reduce 成功（3.0，expected 3.0）
+- DDP forward/backward 成功（0.8s）
+- GPT-3 2 卡 DDP 通过
+- 结果：通过
+
+#### 结论
+
+- Iluvatar CoreX 4.3 的 NCCL P2P 和 SHM 传输层均有 bug
+- P2P 传输 hang，SHM 传输 SIGBUS
+- 使用 Socket 传输（同时禁用 P2P + SHM）可正常完成 DDP 训练
+- gloo backend 也可作为无需 workaround 的备选方案
+- 建议联系天数智芯技术支持确认 CoreX 4.3 的 NCCL P2P/SHM 状态
+
+### Iluvatar BI-V150 单卡
+
+结果：
+
+- device：`cuda:0`
+- torch：2.4.1
+- steps：20
+- batch size：8
+- first loss：`8.494912147521973`
+- final loss：`8.459909439086914`
+- 结果：通过
+
+## 跨平台 Portable GPT-3 验证总结
+
+| 平台 | 镜像 | DDP Backend | 2 卡 DDP | Workaround |
+|------|------|-------------|----------|------------|
+| Ascend 910B | `ascend-910b-pytorch-backend:cann851-py311-torch271-npu271post3` | hccl | 通过 | 无需 |
+| Metax C500 | `maca-pytorch:3.5.3.6-torch2.4-py310-kylinv10-arm64` | nccl | 通过 | 无需（需 2+ GPU） |
+| Iluvatar BI-V150 | `corex:4.3.0` | nccl (Socket) | 通过 | `NCCL_P2P_DISABLE=1` + `NCCL_SHM_DISABLE=1` + `NCCL_SOCKET_IFNAME=eth0` |
+| Iluvatar BI-V150 | `corex:4.3.0` | gloo | 通过 | 无需 |
+
+## 已知问题与 workaround 汇总
+
+| 平台 | 问题 | 根因 | 解决方式 |
+|------|------|------|----------|
+| Iluvatar BI-V150 | NCCL P2P all_reduce hang | NCCL P2P 传输层 bug | 禁用 P2P + SHM，使用 Socket 传输 |
+| Iluvatar BI-V150 | NCCL SHM all_reduce SIGBUS | NCCL SHM 传输层 bug | 同上 |
+| Metax C500 | 1 GPU 设备枚举断言失败 | MACA PyTorch bug | 使用 2+ GPU 规格 |
+| Ascend 910B | ATB 库路径不存在导致 hook 失败 | profile 声明了不存在的 artifact 路径 | `optional: true` 标记 |
+| Ascend 910B | CANN toolkit 全量注入导致 rootfs 空间不足 | backend 镜像已自带 CANN | 精简 profile，只注入驱动库 |
 
 ## 当前未作为通过条件
 

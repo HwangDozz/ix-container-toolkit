@@ -61,6 +61,7 @@ inject:
       containerPath: /usr/local/Ascend
       mode: so-only
       excludeDirs: []
+      optional: true
     - name: driver-binaries
       kind: directory
       hostPaths:

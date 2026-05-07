@@ -1,0 +1,284 @@
+#!/usr/bin/env python3
+"""Portable GPT-3 style training script for cross-platform validation.
+
+Target: ~5 MB model (vocab=4096, d_model=128, nhead=4, layers=4, seq_len=128).
+Runs on Ascend NPU (torch_npu), Iluvatar/Metax CUDA, or CPU fallback.
+Supports torchrun DDP with auto-detected distributed backend.
+"""
+import argparse
+import json
+import math
+import os
+import random
+import sys
+from dataclasses import dataclass
+
+
+def print_json(name, value):
+    print(f"## {name}", flush=True)
+    print(json.dumps(value, ensure_ascii=False, indent=2), flush=True)
+
+
+def import_torch():
+    import torch
+    try:
+        import torch_npu  # noqa: F401
+    except Exception:
+        pass
+    return torch
+
+
+def resolve_device(torch, requested, local_rank):
+    if requested != "auto":
+        return torch.device(requested)
+    if hasattr(torch, "npu") and torch.npu.is_available():
+        torch.npu.set_device(local_rank)
+        return torch.device(f"npu:{local_rank}")
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+        return torch.device(f"cuda:{local_rank}")
+    return torch.device("cpu")
+
+
+def resolve_backend(device, requested):
+    if requested != "auto":
+        return requested
+    if device.type == "npu":
+        return "hccl"
+    if device.type == "cuda":
+        return "nccl"
+    return "gloo"
+
+
+@dataclass
+class DistState:
+    enabled: bool
+    rank: int
+    local_rank: int
+    world_size: int
+    backend: str
+
+
+def init_distributed(torch, device, requested_backend):
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    if world_size <= 1:
+        return DistState(False, rank, local_rank, world_size, "")
+    backend = resolve_backend(device, requested_backend)
+    torch.distributed.init_process_group(backend=backend, init_method="env://")
+    return DistState(True, rank, local_rank, world_size, backend)
+
+
+class CausalSelfAttention:
+    def __init__(self, torch, d_model, nhead, dropout):
+        nn = torch.nn
+        self.module = nn.Module()
+        assert d_model % nhead == 0
+        self.nhead = nhead
+        self.head_dim = d_model // nhead
+        self.module.qkv = nn.Linear(d_model, 3 * d_model, bias=False)
+        self.module.proj = nn.Linear(d_model, d_model, bias=False)
+        self.module.attn_drop = nn.Dropout(dropout)
+        self.module.resid_drop = nn.Dropout(dropout)
+        d = d_model
+
+        def forward(x):
+            b, t, c = x.shape
+            qkv = self.module.qkv(x).reshape(b, t, 3, self.nhead, self.head_dim)
+            qkv = qkv.permute(2, 0, 3, 1, 4)
+            q, k, v = qkv[0], qkv[1], qkv[2]
+            scale = math.sqrt(self.head_dim)
+            att = (q @ k.transpose(-2, -1)) / scale
+            causal_mask = torch.triu(torch.ones(t, t, device=x.device, dtype=torch.bool), diagonal=1)
+            att = att.masked_fill(causal_mask, float("-inf"))
+            att = torch.nn.functional.softmax(att, dim=-1)
+            att = self.module.attn_drop(att)
+            y = att @ v
+            y = y.transpose(1, 2).reshape(b, t, c)
+            return self.module.resid_drop(self.module.proj(y))
+
+        self.module.forward = forward
+
+
+class GPT3Block:
+    def __init__(self, torch, d_model, nhead, mlp_ratio, dropout):
+        nn = torch.nn
+        self.module = nn.Module()
+        self.module.ln1 = nn.LayerNorm(d_model)
+        self.module.attn = CausalSelfAttention(torch, d_model, nhead, dropout).module
+        self.module.ln2 = nn.LayerNorm(d_model)
+        mlp_hidden = int(d_model * mlp_ratio)
+        self.module.mlp = nn.Sequential(
+            nn.Linear(d_model, mlp_hidden),
+            nn.GELU(),
+            nn.Linear(mlp_hidden, d_model),
+            nn.Dropout(dropout),
+        )
+
+        def forward(x):
+            x = x + self.module.attn(self.module.ln1(x))
+            x = x + self.module.mlp(self.module.ln2(x))
+            return x
+
+        self.module.forward = forward
+
+
+class MiniGPT3:
+    def __init__(self, torch, vocab_size, seq_len, d_model, nhead, layers, mlp_ratio, dropout):
+        nn = torch.nn
+        self.module = nn.Module()
+        self.module.tok_emb = nn.Embedding(vocab_size, d_model)
+        self.module.pos_emb = nn.Embedding(seq_len, d_model)
+        self.module.drop = nn.Dropout(dropout)
+        self.module.blocks = nn.Sequential(
+            *[GPT3Block(torch, d_model, nhead, mlp_ratio, dropout).module for _ in range(layers)]
+        )
+        self.module.ln_f = nn.LayerNorm(d_model)
+        self.module.head = nn.Linear(d_model, vocab_size, bias=False)
+        self.seq_len = seq_len
+        self.d_model = d_model
+        scale = math.sqrt(d_model)
+
+        def forward(input_ids):
+            b, t = input_ids.shape
+            assert t <= self.seq_len, f"sequence length {t} exceeds max {self.seq_len}"
+            positions = torch.arange(t, device=input_ids.device).unsqueeze(0)
+            x = self.module.tok_emb(input_ids) * scale + self.module.pos_emb(positions)
+            x = self.module.drop(x)
+            x = self.module.blocks(x)
+            x = self.module.ln_f(x)
+            logits = self.module.head(x)
+            return logits
+
+        self.module.forward = forward
+
+    def count_params(self):
+        return sum(p.numel() for p in self.module.parameters())
+
+
+def synthetic_batch(torch, batch_size, seq_len, vocab_size, device):
+    tokens = torch.randint(0, vocab_size, (batch_size, seq_len + 1), device=device)
+    input_ids = tokens[:, :-1]
+    target_ids = tokens[:, 1:]
+    return input_ids, target_ids
+
+
+def train(args):
+    torch = import_torch()
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    device = resolve_device(torch, args.device, local_rank)
+    dist = init_distributed(torch, device, args.dist_backend)
+
+    seed = args.seed + dist.rank
+    random.seed(seed)
+    torch.manual_seed(seed)
+
+    model = MiniGPT3(
+        torch=torch,
+        vocab_size=args.vocab_size,
+        seq_len=args.seq_len,
+        d_model=args.d_model,
+        nhead=args.nhead,
+        layers=args.layers,
+        mlp_ratio=args.mlp_ratio,
+        dropout=args.dropout,
+    )
+    param_count = model.count_params()
+    param_bytes = param_count * 4
+    param_mb = param_bytes / (1024 * 1024)
+
+    model_module = model.module.to(device)
+    if dist.enabled:
+        model_module = torch.nn.parallel.DistributedDataParallel(
+            model_module,
+            device_ids=[local_rank] if device.type != "cpu" else None,
+        )
+
+    optimizer = torch.optim.AdamW(model_module.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    criterion = torch.nn.CrossEntropyLoss()
+
+    losses = []
+    model_module.train()
+    for step in range(args.steps):
+        input_ids, target_ids = synthetic_batch(torch, args.batch_size, args.seq_len, args.vocab_size, device)
+        optimizer.zero_grad(set_to_none=True)
+        logits = model_module(input_ids)
+        loss = criterion(logits.reshape(-1, args.vocab_size), target_ids.reshape(-1))
+        loss.backward()
+        if args.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(model_module.parameters(), args.grad_clip)
+        optimizer.step()
+        losses.append(float(loss.detach().cpu()))
+
+    if dist.enabled:
+        loss_tensor = torch.tensor([losses[-1]], device=device)
+        torch.distributed.all_reduce(loss_tensor, op=torch.distributed.ReduceOp.SUM)
+        avg_final_loss = float((loss_tensor / dist.world_size).cpu()[0])
+    else:
+        avg_final_loss = losses[-1]
+
+    result = {
+        "python": sys.version,
+        "torch": getattr(torch, "__version__", ""),
+        "device": str(device),
+        "distributed": dist.enabled,
+        "backend": dist.backend,
+        "rank": dist.rank,
+        "local_rank": dist.local_rank,
+        "world_size": dist.world_size,
+        "model": {
+            "name": "MiniGPT3",
+            "vocab_size": args.vocab_size,
+            "seq_len": args.seq_len,
+            "d_model": args.d_model,
+            "nhead": args.nhead,
+            "layers": args.layers,
+            "mlp_ratio": args.mlp_ratio,
+            "param_count": param_count,
+            "param_mb": round(param_mb, 2),
+        },
+        "training": {
+            "steps": args.steps,
+            "batch_size": args.batch_size,
+            "lr": args.lr,
+            "weight_decay": args.weight_decay,
+            "grad_clip": args.grad_clip,
+        },
+        "first_loss": losses[0],
+        "final_loss": losses[-1],
+        "avg_final_loss": avg_final_loss,
+        "loss_history": losses,
+    }
+    if dist.rank == 0:
+        print_json("portable_gpt3_train", result)
+
+    if dist.enabled:
+        torch.distributed.destroy_process_group()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Portable GPT-3 small training")
+    parser.add_argument("--device", default="auto")
+    parser.add_argument("--dist-backend", default="auto")
+    # model
+    parser.add_argument("--vocab-size", type=int, default=4096)
+    parser.add_argument("--seq-len", type=int, default=128)
+    parser.add_argument("--d-model", type=int, default=128)
+    parser.add_argument("--nhead", type=int, default=4)
+    parser.add_argument("--layers", type=int, default=4)
+    parser.add_argument("--mlp-ratio", type=float, default=4.0)
+    parser.add_argument("--dropout", type=float, default=0.0)
+    # training
+    parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument("--grad-clip", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=20260507)
+    args = parser.parse_args()
+    train(args)
+
+
+if __name__ == "__main__":
+    main()
