@@ -6,11 +6,12 @@
 //  1. Copies accelerator-container-runtime and accelerator-container-hook to the host at
 //     /usr/local/bin/ (configurable via environment variables).
 //  2. Writes the accelerator-toolkit config to /etc/accelerator-toolkit/config.json.
-//  3. Patches the containerd config to register accelerator-container-runtime under the
+//  3. Generates a node-local CDI spec at /etc/cdi/<vendor>.json (set CDI_ENABLED=false to skip).
+//  4. Patches the containerd config to register accelerator-container-runtime under the
 //     runtime handler declared by the active profile.
-//  4. Labels the current node with the labels declared by the active profile
+//  5. Labels the current node with the labels declared by the active profile
 //     via the Kubernetes API so that the DaemonSet nodeSelector can match it.
-//  5. (Optional) Restarts containerd via systemd dbus if RESTART_CONTAINERD=true.
+//  6. (Optional) Restarts containerd via systemd dbus if RESTART_CONTAINERD=true.
 package main
 
 import (
@@ -28,13 +29,16 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/cdi"
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/config"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/device"
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/runtimeview"
 )
 
 const (
 	defaultHostBinDir    = "/usr/local/bin"
 	defaultHostConfigDir = "/etc/accelerator-toolkit"
+	defaultHostCDIDir    = "/etc/cdi"
 	containerdConfigPath = "/etc/containerd/config.toml"
 )
 
@@ -75,6 +79,7 @@ func main() {
 	}{
 		{"copy binaries", func() error { return copyBinaries(hostBinDir) }},
 		{"write config", func() error { return writeConfig(hostConfigDir, hostBinDir, view, profilePath) }},
+		{"generate CDI spec", func() error { return generateCDISpec(view) }},
 		{"patch containerd", func() error { return patchContainerd(hostBinDir, view) }},
 		{"label node", func() error { return labelNode(view) }},
 		{"restart containerd", restartContainerd},
@@ -150,6 +155,64 @@ func writeConfig(hostConfigDir, hostBinDir string, view *runtimeview.View, profi
 	}
 	log.WithField("path", hostProfilePath).Info("profile copied to host")
 
+	return nil
+}
+
+// generateCDISpec discovers accelerator devices on the node and generates a
+// node-local CDI spec file at /etc/cdi/<vendor>.json. This enables containerd
+// to inject devices and driver libraries natively via CDI without requiring the
+// custom runtime shim or OCI hook.
+//
+// Set CDI_ENABLED=false to skip this step.
+func generateCDISpec(view *runtimeview.View) error {
+	if strings.ToLower(os.Getenv("CDI_ENABLED")) == "false" {
+		log.Info("CDI_ENABLED=false, skipping CDI spec generation")
+		return nil
+	}
+
+	p := view.Profile()
+
+	// Discover all devices on this node.
+	visibleDevices := "all"
+	if len(p.Device.SelectorFormats) > 0 {
+		for _, f := range p.Device.SelectorFormats {
+			if strings.EqualFold(strings.TrimSpace(f), "all") {
+				visibleDevices = "all"
+				break
+			}
+		}
+	}
+
+	devs, err := device.DiscoverWithProfile(visibleDevices, p, log)
+	if err != nil {
+		return fmt.Errorf("discovering devices for CDI spec: %w", err)
+	}
+	if len(devs) == 0 {
+		log.Warn("no accelerator devices found, skipping CDI spec generation")
+		return nil
+	}
+
+	log.WithField("count", len(devs)).Info("discovered accelerator devices for CDI spec")
+
+	gen := cdi.NewGenerator(p, devs, log)
+	spec, err := gen.Generate()
+	if err != nil {
+		return fmt.Errorf("generating CDI spec: %w", err)
+	}
+
+	hostMount := envOr("HOST_MOUNT", "/host")
+	cdiDir := filepath.Join(hostMount, defaultHostCDIDir)
+
+	path, err := cdi.WriteSpec(spec, cdiDir)
+	if err != nil {
+		return fmt.Errorf("writing CDI spec: %w", err)
+	}
+
+	log.WithFields(logrus.Fields{
+		"path":    path,
+		"devices": len(spec.Devices),
+		"kind":    spec.Kind,
+	}).Info("CDI spec written")
 	return nil
 }
 
