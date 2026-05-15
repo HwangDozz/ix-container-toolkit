@@ -8,13 +8,10 @@ import (
 )
 
 const (
-	renderedAppName         = "accelerator-toolkit"
-	renderedNamespace       = "kube-system"
-	renderedServiceAccount  = "accelerator-toolkit"
-	renderedPauseName       = "accelerator-toolkit-pause"
-	renderedHostConfigDir   = "/etc/accelerator-toolkit"
-	renderedProfileEnvName  = "ACCELERATOR_PROFILE_FILE"
-	renderedLogLevelEnvName = "ACCELERATOR_LOG_LEVEL"
+	renderedAppName        = "accelerator-dra-driver"
+	renderedNamespace      = "kube-system"
+	renderedServiceAccount = "accelerator-dra-driver"
+	renderedProfileDir     = "/profiles"
 )
 
 type RuntimeClassManifest struct {
@@ -104,20 +101,19 @@ type PodSpec struct {
 	ServiceAccountName string            `yaml:"serviceAccountName"`
 	NodeSelector       map[string]string `yaml:"nodeSelector,omitempty"`
 	Tolerations        []Toleration      `yaml:"tolerations,omitempty"`
-	HostPID            bool              `yaml:"hostPID,omitempty"`
-	InitContainers     []Container       `yaml:"initContainers,omitempty"`
+	PriorityClassName  string            `yaml:"priorityClassName,omitempty"`
 	Containers         []Container       `yaml:"containers"`
 	Volumes            []Volume          `yaml:"volumes,omitempty"`
 }
 
 type Container struct {
-	Name            string            `yaml:"name"`
-	Image           string            `yaml:"image"`
-	ImagePullPolicy string            `yaml:"imagePullPolicy,omitempty"`
-	Command         []string          `yaml:"command,omitempty"`
+	Name            string           `yaml:"name"`
+	Image           string           `yaml:"image"`
+	ImagePullPolicy string           `yaml:"imagePullPolicy,omitempty"`
+	Args            []string         `yaml:"args,omitempty"`
 	SecurityContext *SecurityContext  `yaml:"securityContext,omitempty"`
-	Env             []EnvVar          `yaml:"env,omitempty"`
-	VolumeMounts    []VolumeMount     `yaml:"volumeMounts,omitempty"`
+	Env             []EnvVar         `yaml:"env,omitempty"`
+	VolumeMounts    []VolumeMount    `yaml:"volumeMounts,omitempty"`
 	Resources       *ResourceRequests `yaml:"resources,omitempty"`
 }
 
@@ -142,10 +138,12 @@ type ObjectFieldSelector struct {
 type VolumeMount struct {
 	Name      string `yaml:"name"`
 	MountPath string `yaml:"mountPath"`
+	ReadOnly  bool   `yaml:"readOnly,omitempty"`
 }
 
 type ResourceRequests struct {
 	Requests map[string]string `yaml:"requests,omitempty"`
+	Limits   map[string]string `yaml:"limits,omitempty"`
 }
 
 type Volume struct {
@@ -182,7 +180,7 @@ func (p *Profile) RenderRuntimeClassYAML() ([]byte, error) {
 	return data, nil
 }
 
-// RenderDaemonSetYAML renders the installer DaemonSet manifest from the profile.
+// RenderDaemonSetYAML renders the DRA driver DaemonSet manifest from the profile.
 func (p *Profile) RenderDaemonSetYAML(image, sourceProfilePath string) ([]byte, error) {
 	if p == nil {
 		return nil, fmt.Errorf("profile is nil")
@@ -194,9 +192,9 @@ func (p *Profile) RenderDaemonSetYAML(image, sourceProfilePath string) ([]byte, 
 		return nil, fmt.Errorf("image is required")
 	}
 
-	profileInImage := "/profiles/" + filepath.Base(sourceProfilePath)
+	profileInImage := renderedProfileDir + "/" + filepath.Base(sourceProfilePath)
 	if sourceProfilePath == "" {
-		profileInImage = "/profiles/" + p.Metadata.Name + ".yaml"
+		profileInImage = renderedProfileDir + "/" + p.Metadata.Name + ".yaml"
 	}
 
 	labels := map[string]string{"app": renderedAppName}
@@ -231,12 +229,17 @@ func (p *Profile) RenderDaemonSetYAML(image, sourceProfilePath string) ([]byte, 
 					ServiceAccountName: renderedServiceAccount,
 					NodeSelector:       nodeSelector,
 					Tolerations:        tolerations,
-					HostPID:            true,
-					InitContainers: []Container{
+					PriorityClassName:  "system-node-critical",
+					Containers: []Container{
 						{
-							Name:            "accelerator-installer",
+							Name:            "dra-driver",
 							Image:           image,
 							ImagePullPolicy: "IfNotPresent",
+							Args: []string{
+								"--profile=" + profileInImage,
+								"--cdi-dir=/host/etc/cdi",
+								"--node-name=$(NODE_NAME)",
+							},
 							SecurityContext: &SecurityContext{Privileged: true},
 							Env: []EnvVar{
 								{
@@ -245,34 +248,32 @@ func (p *Profile) RenderDaemonSetYAML(image, sourceProfilePath string) ([]byte, 
 										FieldRef: &ObjectFieldSelector{FieldPath: "spec.nodeName"},
 									},
 								},
-								{Name: "HOST_BIN_DIR", Value: "/usr/local/bin"},
-								{Name: "HOST_CONFIG_DIR", Value: renderedHostConfigDir},
-								{Name: "HOST_MOUNT", Value: "/host"},
-								{Name: renderedProfileEnvName, Value: profileInImage},
-								{Name: "RESTART_CONTAINERD", Value: "false"},
-								{Name: renderedLogLevelEnvName, Value: "info"},
 							},
-							VolumeMounts: []VolumeMount{
-								{Name: "host-root", MountPath: "/host"},
-								{Name: "host-run", MountPath: "/host/run"},
-							},
-						},
-					},
-					Containers: []Container{
-						{
-							Name:  renderedPauseName,
-							Image: "registry.k8s.io/pause:3.9",
 							Resources: &ResourceRequests{
 								Requests: map[string]string{
-									"cpu":    "10m",
-									"memory": "10Mi",
+									"cpu":    "50m",
+									"memory": "64Mi",
 								},
+								Limits: map[string]string{
+									"cpu":    "500m",
+									"memory": "256Mi",
+								},
+							},
+							VolumeMounts: []VolumeMount{
+								{Name: "host-etc-cdi", MountPath: "/host/etc/cdi"},
+								{Name: "host-etc-accelerator", MountPath: "/etc/accelerator-toolkit"},
+								{Name: "kubelet-plugins", MountPath: "/var/lib/kubelet/plugins"},
+								{Name: "kubelet-plugins-registry", MountPath: "/var/lib/kubelet/plugins_registry"},
+								{Name: "host-dev", MountPath: "/dev", ReadOnly: true},
 							},
 						},
 					},
 					Volumes: []Volume{
-						{Name: "host-root", HostPath: &HostPath{Path: "/"}},
-						{Name: "host-run", HostPath: &HostPath{Path: "/run"}},
+						{Name: "host-etc-cdi", HostPath: &HostPath{Path: "/etc/cdi"}},
+						{Name: "host-etc-accelerator", HostPath: &HostPath{Path: "/etc/accelerator-toolkit"}},
+						{Name: "kubelet-plugins", HostPath: &HostPath{Path: "/var/lib/kubelet/plugins"}},
+						{Name: "kubelet-plugins-registry", HostPath: &HostPath{Path: "/var/lib/kubelet/plugins_registry"}},
+						{Name: "host-dev", HostPath: &HostPath{Path: "/dev"}},
 					},
 				},
 			},
@@ -286,7 +287,7 @@ func (p *Profile) RenderDaemonSetYAML(image, sourceProfilePath string) ([]byte, 
 	return data, nil
 }
 
-// RenderRBACYAML renders the static RBAC needed by the installer DaemonSet.
+// RenderRBACYAML renders the RBAC needed by the DRA driver DaemonSet.
 func (p *Profile) RenderRBACYAML() ([]byte, error) {
 	if p == nil {
 		return nil, fmt.Errorf("profile is nil")
@@ -311,9 +312,19 @@ func (p *Profile) RenderRBACYAML() ([]byte, error) {
 		},
 		Rules: []PolicyRule{
 			{
+				APIGroups: []string{"resource.k8s.io"},
+				Resources: []string{"resourceslices"},
+				Verbs:     []string{"create", "update", "delete", "list", "watch"},
+			},
+			{
+				APIGroups: []string{"resource.k8s.io"},
+				Resources: []string{"resourceclaims"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+			{
 				APIGroups: []string{""},
 				Resources: []string{"nodes"},
-				Verbs:     []string{"get", "list", "patch", "update"},
+				Verbs:     []string{"get"},
 			},
 		},
 	}

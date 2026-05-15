@@ -1,0 +1,95 @@
+---
+# DaemonSet for the accelerator DRA driver.
+# Runs on every GPU node, discovers devices, publishes ResourceSlices,
+# and handles NodePrepareResource/NodeUnprepareResource gRPC calls from kubelet.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: accelerator-dra-driver
+  namespace: kube-system
+  labels:
+    app: accelerator-dra-driver
+spec:
+  selector:
+    matchLabels:
+      app: accelerator-dra-driver
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: accelerator-dra-driver
+    spec:
+      serviceAccountName: accelerator-dra-driver
+      # Node selector is set per-vendor. The installer DaemonSet
+      # labels GPU nodes; use the same labels here.
+      # nodeSelector:
+      #   iluvatar.ai/gpu: "present"
+      # tolerations:
+      #   - key: iluvatar.ai/gpu
+      #     operator: Exists
+      #     effect: NoSchedule
+      priorityClassName: system-node-critical
+      containers:
+        - name: dra-driver
+          image: accelerator-toolkit/dra-driver:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --profile=/etc/accelerator-toolkit/profiles/active.yaml
+            - --cdi-dir=/host/etc/cdi
+            - --node-name=$(NODE_NAME)
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            # CDI specs are written here; containerd reads from this path.
+            - name: host-etc-cdi
+              mountPath: /host/etc/cdi
+            # Profile and config are shared with the installer.
+            - name: host-etc-accelerator
+              mountPath: /etc/accelerator-toolkit
+            # Kubelet plugin registration and DRA gRPC sockets.
+            - name: kubelet-plugins
+              mountPath: /var/lib/kubelet/plugins
+            - name: kubelet-plugins-registry
+              mountPath: /var/lib/kubelet/plugins_registry
+            # Device nodes for discovery.
+            - name: host-dev
+              mountPath: /dev
+              readOnly: true
+          # Liveness: check that the DRA socket exists.
+          livenessProbe:
+            exec:
+              command:
+                - test
+                - -e
+                - /var/lib/kubelet/plugins/gpu.accelerator-toolkit.io/dra.sock
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      volumes:
+        - name: host-etc-cdi
+          hostPath:
+            path: /etc/cdi
+        - name: host-etc-accelerator
+          hostPath:
+            path: /etc/accelerator-toolkit
+        - name: kubelet-plugins
+          hostPath:
+            path: /var/lib/kubelet/plugins
+        - name: kubelet-plugins-registry
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+        - name: host-dev
+          hostPath:
+            path: /dev

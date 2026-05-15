@@ -1,0 +1,39 @@
+---
+# RBAC for the accelerator DRA driver.
+# The driver needs access to:
+# - ResourceSlices: create/update/delete/list/watch (publishing device info)
+# - ResourceClaims: get/list/watch (preparing allocated claims)
+# - Nodes: get (looking up node UID for ResourceSlice owner)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: accelerator-dra-driver
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: accelerator-dra-driver
+rules:
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceslices"]
+    verbs: ["create", "update", "delete", "list", "watch"]
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: accelerator-dra-driver
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: accelerator-dra-driver
+subjects:
+  - kind: ServiceAccount
+    name: accelerator-dra-driver
+    namespace: kube-system

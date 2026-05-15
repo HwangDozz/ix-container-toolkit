@@ -1,5 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 1: Build
+# DRA Driver Image
+# Runs as a DaemonSet to publish ResourceSlices and handle NodePrepareResource.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM golang:1.26.1-bookworm AS builder
 
@@ -13,21 +14,11 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 \
     go build -trimpath -ldflags="-s -w" \
-    -o /out/accelerator-container-runtime ./cmd/accelerator-container-runtime && \
-    go build -trimpath -ldflags="-s -w" \
-    -o /out/accelerator-container-hook    ./cmd/accelerator-container-hook && \
-    go build -trimpath -ldflags="-s -w" \
-    -o /out/accelerator-installer         ./cmd/accelerator-installer
+    -o /out/accelerator-dra-driver ./cmd/accelerator-dra-driver
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Stage 2: Installer image
-# Runs as an init container to copy binaries and patch containerd config.
-# ─────────────────────────────────────────────────────────────────────────────
-FROM debian:bookworm-slim AS installer
+FROM debian:bookworm-slim
 
-COPY --from=builder /out/accelerator-container-runtime /usr/local/bin/accelerator-container-runtime
-COPY --from=builder /out/accelerator-container-hook    /usr/local/bin/accelerator-container-hook
-COPY --from=builder /out/accelerator-installer         /usr/local/bin/accelerator-installer
+COPY --from=builder /out/accelerator-dra-driver /usr/local/bin/accelerator-dra-driver
 COPY profiles /profiles
 
-ENTRYPOINT ["/usr/local/bin/accelerator-installer"]
+ENTRYPOINT ["/usr/local/bin/accelerator-dra-driver"]

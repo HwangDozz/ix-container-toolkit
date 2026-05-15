@@ -367,7 +367,7 @@ func TestRenderDaemonSetYAML(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	data, err := p.RenderDaemonSetYAML("docker.io/accelerator-toolkit/installer:latest", "profiles/iluvatar-bi-v150.yaml")
+	data, err := p.RenderDaemonSetYAML("docker.io/accelerator-toolkit/dra-driver:latest", "profiles/iluvatar-bi-v150.yaml")
 	if err != nil {
 		t.Fatalf("RenderDaemonSetYAML returned error: %v", err)
 	}
@@ -376,20 +376,20 @@ func TestRenderDaemonSetYAML(t *testing.T) {
 	if !strings.Contains(out, "kind: DaemonSet") {
 		t.Fatalf("rendered manifest missing kind: %s", out)
 	}
-	if !strings.Contains(out, "image: docker.io/accelerator-toolkit/installer:latest") {
-		t.Fatalf("rendered manifest missing installer image: %s", out)
+	if !strings.Contains(out, "image: docker.io/accelerator-toolkit/dra-driver:latest") {
+		t.Fatalf("rendered manifest missing dra-driver image: %s", out)
 	}
-	if !strings.Contains(out, "ACCELERATOR_PROFILE_FILE") {
-		t.Fatalf("rendered manifest missing ACCELERATOR_PROFILE_FILE env: %s", out)
-	}
-	if !strings.Contains(out, "iluvatar-bi-v150.yaml") {
-		t.Fatalf("rendered manifest missing profile file name: %s", out)
+	if !strings.Contains(out, "--profile=/profiles/iluvatar-bi-v150.yaml") {
+		t.Fatalf("rendered manifest missing --profile arg: %s", out)
 	}
 	if !strings.Contains(out, "iluvatar.ai/gpu: present") {
 		t.Fatalf("rendered manifest missing nodeSelector label: %s", out)
 	}
-	if strings.Contains(out, "IX_DRIVER_LIB_PATHS") || strings.Contains(out, "IX_DRIVER_BIN_PATHS") {
-		t.Fatalf("rendered manifest should not hardcode legacy driver path envs: %s", out)
+	if !strings.Contains(out, "kubelet-plugins") {
+		t.Fatalf("rendered manifest missing kubelet-plugins volume: %s", out)
+	}
+	if !strings.Contains(out, "system-node-critical") {
+		t.Fatalf("rendered manifest missing priorityClassName: %s", out)
 	}
 	if strings.Contains(out, "NoExecute") {
 		t.Fatalf("rendered manifest should prefer profile tolerations over generic defaults: %s", out)
@@ -402,7 +402,7 @@ func TestRenderBundleYAML(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	data, err := p.RenderBundleYAML("docker.io/accelerator-toolkit/installer:latest", "profiles/iluvatar-bi-v150.yaml")
+	data, err := p.RenderBundleYAML("docker.io/accelerator-toolkit/dra-driver:latest", "profiles/iluvatar-bi-v150.yaml")
 	if err != nil {
 		t.Fatalf("RenderBundleYAML returned error: %v", err)
 	}
@@ -416,43 +416,5 @@ func TestRenderBundleYAML(t *testing.T) {
 	}
 	if !strings.Contains(out, "kind: DaemonSet") {
 		t.Fatalf("bundle missing DaemonSet: %s", out)
-	}
-}
-
-func TestRenderCDISpecYAML(t *testing.T) {
-	p, err := Load(filepath.Join("..", "..", "profiles", "metax-c500.yaml"))
-	if err != nil {
-		t.Fatalf("Load returned error: %v", err)
-	}
-
-	data, err := p.RenderCDISpecYAML("")
-	if err != nil {
-		t.Fatalf("RenderCDISpecYAML returned error: %v", err)
-	}
-
-	out := string(data)
-	if !strings.Contains(out, "cdiVersion: 1.1.0") {
-		t.Fatalf("rendered CDI spec missing version: %s", out)
-	}
-	if !strings.Contains(out, "kind: metax-tech.com/gpu") {
-		t.Fatalf("rendered CDI spec missing kind: %s", out)
-	}
-	if !strings.Contains(out, "name: all") {
-		t.Fatalf("rendered CDI spec missing default device name: %s", out)
-	}
-	if !strings.Contains(out, "METAX_VISIBLE_DEVICES=all") {
-		t.Fatalf("rendered CDI spec missing selector env: %s", out)
-	}
-	if !strings.Contains(out, "MACA_PATH=/opt/maca") {
-		t.Fatalf("rendered CDI spec missing extra env: %s", out)
-	}
-	if !strings.Contains(out, "hostPath: /dev/mxcd") {
-		t.Fatalf("rendered CDI spec missing control device node: %s", out)
-	}
-	if !strings.Contains(out, "containerPath: /opt/maca/ompi/lib") {
-		t.Fatalf("rendered CDI spec missing derived mount target: %s", out)
-	}
-	if !strings.Contains(out, "- rbind") || !strings.Contains(out, "- ro") {
-		t.Fatalf("rendered CDI spec missing mount options: %s", out)
 	}
 }
