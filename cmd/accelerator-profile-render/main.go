@@ -6,6 +6,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/cdi"
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
 )
 
@@ -134,7 +135,7 @@ func main() {
 						return fmt.Errorf("loading profile: %w", err)
 					}
 
-					data, err := p.RenderCDISpecYAML(ctx.String("device-name"))
+					data, err := cdi.RenderPreviewSpec(p, ctx.String("device-name"))
 					if err != nil {
 						return fmt.Errorf("rendering cdi spec: %w", err)
 					}

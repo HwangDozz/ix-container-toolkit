@@ -11,6 +11,7 @@ import (
 
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/device"
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/strutil"
 )
 
 // Generator produces node-local CDI specs by inspecting the host filesystem.
@@ -265,7 +266,7 @@ func (g *Generator) buildSoOnlyMounts(artifact profile.Artifact, hostDir string)
 			continue
 		}
 
-		if !isSharedLibrary(name) {
+		if !strutil.IsSharedLibrary(name) {
 			continue
 		}
 
@@ -317,25 +318,6 @@ func (g *Generator) buildHooks() *Hooks {
 		return nil
 	}
 	return &hooks
-}
-
-// isSharedLibrary returns true if the filename looks like a shared library:
-// libfoo.so, libfoo.so.1, libfoo.so.1.2.3, etc.
-func isSharedLibrary(name string) bool {
-	if strings.HasSuffix(name, ".so") {
-		return true
-	}
-	// Match *.so.N[.N...] where N is a version number.
-	idx := strings.Index(name, ".so.")
-	if idx < 0 {
-		return false
-	}
-	suffix := name[idx+4:] // after ".so."
-	if len(suffix) == 0 {
-		return false
-	}
-	// First character after ".so." must be a digit (version number).
-	return suffix[0] >= '0' && suffix[0] <= '9'
 }
 
 // artifactContainerPath computes the container path for an artifact mount.

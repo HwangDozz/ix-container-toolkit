@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: deepseek-v4-download
+  namespace: crater-workspace
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: kunlun-02
+  containers:
+  - name: downloader
+    image: crater-harbor.act.buaa.edu.cn/library/python:3.11-slim
+    imagePullPolicy: IfNotPresent
+    command:
+    - /bin/bash
+    - -lc
+    - |
+      set -euo pipefail
+      df -h /storage1
+      mkdir -p /storage1/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Flash-w8a8-mtp
+      ls -ld /storage1/modelscope/hub/models/vllm-ascend/DeepSeek-V4-Flash-w8a8-mtp
+      sleep infinity
+    volumeMounts:
+    - name: storage1
+      mountPath: /storage1
+  volumes:
+  - name: storage1
+    hostPath:
+      path: /storage1
+      type: DirectoryOrCreate

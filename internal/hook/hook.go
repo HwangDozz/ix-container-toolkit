@@ -27,6 +27,7 @@ import (
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/device"
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/runtimeview"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/strutil"
 )
 
 // Hook is the main hook executor.
@@ -156,7 +157,7 @@ func (h *Hook) mountSharedLibraries(hostDir, targetDir string, excludeDirs []str
 		}
 
 		// Only mount shared library files (.so or .so.*)
-		if !isSharedLibrary(name) {
+		if !strutil.IsSharedLibrary(name) {
 			continue
 		}
 
@@ -191,20 +192,6 @@ func (h *Hook) mountSharedLibraries(hostDir, targetDir string, excludeDirs []str
 		"count":   mounted,
 	}).Info("shared libraries injected (so-only mode)")
 	return nil
-}
-
-// isSharedLibrary returns true if the filename looks like a shared library:
-// libfoo.so, libfoo.so.1, libfoo.so.1.2.3, etc.
-func isSharedLibrary(name string) bool {
-	// Match *.so
-	if strings.HasSuffix(name, ".so") {
-		return true
-	}
-	// Match *.so.N[.N...]
-	if idx := strings.Index(name, ".so."); idx >= 0 {
-		return true
-	}
-	return false
 }
 
 func (h *Hook) injectArtifacts(rootfs string, devs []device.Device) error {
