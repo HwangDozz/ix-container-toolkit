@@ -9,6 +9,7 @@ import (
 
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/device"
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
+	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/strutil"
 )
 
 func testLogger() *logrus.Logger {
@@ -416,9 +417,9 @@ func TestIsSharedLibrary(t *testing.T) {
 		{"libcuda.something", false},
 	}
 	for _, tt := range tests {
-		got := isSharedLibrary(tt.name)
+		got := strutil.IsSharedLibrary(tt.name)
 		if got != tt.want {
-			t.Errorf("isSharedLibrary(%q) = %v, want %v", tt.name, got, tt.want)
+			t.Errorf("IsSharedLibrary(%q) = %v, want %v", tt.name, got, tt.want)
 		}
 	}
 }

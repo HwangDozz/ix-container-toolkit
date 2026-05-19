@@ -6,7 +6,7 @@
 // produces one CDI device entry per physical accelerator device.
 package cdi
 
-const SpecVersion = "1.1.0"
+const SpecVersion = "0.8.0"
 
 // Spec is the top-level CDI spec file structure.
 type Spec struct {
