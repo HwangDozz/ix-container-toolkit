@@ -189,36 +189,88 @@ CDI 1.1 支持 `containerEdits.hooks.prestart`。当 profile 的 `linker.runLdco
 
 每个 GPU 设备以 UUID 命名 (如 `GPU-aaaa`)，无 UUID 时 fallback 到 index (如 `0`)。这允许用户通过 `cdi.k8s.io/devices` annotation 选择特定 GPU。
 
-## 本地验证结果 (2026-05-13, kunlun-02)
+## 本地验证结果 (2026-05-18, kunlun-02)
 
 ### CDI Spec 生成验证 — 通过
 
-在 kunlun-02 (8x Ascend 910B, driver v25.5.1, CANN 8.5.1) 上成功生成 CDI spec：
+在 kunlun-02 (8x Ascend 910B, driver v25.5.1, CANN 8.5.1) 上使用 `cdi-generate` 工具成功生成 CDI spec：
 
 - 设备发现: 8 个 davinci 设备 (davinci0-7)，正确跳过 davinci_manager 等控制设备
-- 环境变量: 12 个 (1 selector + 11 extraEnv)
-- 设备节点: 每设备 4 个 (1 compute + 3 control)
+- 环境变量: 12 个 (1 selector `ASCEND_VISIBLE_DEVICES=all` + 11 extraEnv)
+- 设备节点: 每设备 4 个 (1 compute + 3 control: davinci_manager, devmm_svm, hisi_hdc)
 - 挂载点: 每设备 178 个 (so-only 展开的 .so 文件 + bind 目录)
 - Hooks: ldconfig prestart hook 正确生成
-- Optional 路径: `/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_0/lib` 正确跳过 (不存在)
-- CDI spec 写入 `/etc/cdi/huawei.json` (371KB, 7403 行)
+- CDI spec 写入 `/etc/cdi/huawei.json`
+
+### CDI Spec 内容验证 — 通过
+
+使用 `cdi-verify` 工具验证生成的 CDI spec：
+
+```
+Profile: ascend-910b
+Resource: huawei.com/Ascend910
+Discovered 8 devices: davinci0-7
+CDI Spec:
+  Version: 0.8.0
+  Kind: huawei.com/Ascend910
+  Devices: 8
+
+Device Entries (each):
+  Env vars: 12
+  Device nodes: 4
+  Mounts: 178
+  Hooks: 1 prestart (ldconfig)
+```
+
+所有设备节点和挂载源路径均存在于宿主机，无 missing 警告。
+
+### containerd 升级验证 — 通过
+
+将 containerd 从 v1.7.28 升级到 v2.2.1，保留自定义配置：
+
+- 自定义存储路径: `root = "/storage1/data/containerd"`, `state = "/storage1/data/containerd-state"`
+- 镜像仓库配置: docker.io 镜像加速
+- Ascend Docker Runtime 配置
+- accelerator-toolkit xpu-runtime 配置
+- CDI 配置: `enable_cdi = true`, `cdi_spec_dirs = ["/etc/cdi", "/var/run/cdi"]`
+
+升级后 32 个容器正常运行，CRI 插件状态正常。
 
 ### containerd CDI 消费验证 — 未通过
 
-containerd v1.7.28 配置 `enable_cdi = true` 后，`cdi.k8s.io/devices` annotation **未被处理**：
+**问题**: containerd 2.2.1 不处理 `cdi.k8s.io/devices` annotation。
 
-- containerd 日志始终显示 `CDI devices from CRI Config.CDIDevices: []`
-- 无论 annotation 放在 pod 级别还是 container 级别，CDIDevices 始终为空
-- `ctr` CLI 不支持 `--cdi-devices` flag
-- crictl 直接创建 container 时 `cdi_devices` 字段也未生效
+containerd 日志始终显示:
+```
+CDI devices from CRI Config.CDIDevices: []
+```
 
-**原因分析**: containerd 1.7.28 的 CRI 插件可能不支持从 Kubernetes annotation 自动解析 CDI 设备。CDI annotation 处理 (`cdi.k8s.io/devices`) 可能需要更新版本的 containerd 或特定的 CRI API 支持。
+**根因分析**:
 
-### 下一步排查方向
+CDI annotation 处理需要设备插件在 Allocate 响应中返回 CDI 设备。当前 Ascend 设备插件 v7.3.0 仅返回环境变量，不返回 CDI 设备:
 
-1. 确认 containerd 1.7.28 是否支持 `cdi.k8s.io/devices` annotation 解析
-2. 如果不支持，考虑升级 containerd 到支持 CDI annotation 的版本
-3. 或者通过 device plugin 的 Allocate 响应来传递 CDI 设备信息（需要修改 device plugin）
+```
+allocate resp env: 0;   # 仅返回 env，无 CDI 设备
+```
+
+**解决方案**:
+
+1. **修改设备插件**: 需要修改 Ascend 设备插件，使其在 Allocate 响应中返回 CDI 设备
+2. **升级设备插件**: 检查是否有支持 CDI 的新版本设备插件
+3. **使用 CDI-aware 设备插件**: 使用支持 CDI 的通用设备插件框架
+
+CRI 层面的 CDI annotation 处理需要通过 Kubernetes 或 crictl 完整的 Pod 创建流程验证，当前环境存在 cgroups 配置问题（systemd cgroups path format mismatch），阻止了 crictl 直接测试。
+
+### 单元测试验证 — 通过
+
+所有 CDI 相关测试通过：
+
+```
+ok  github.com/accelerator-toolkit/accelerator-toolkit/pkg/cdi      0.016s
+ok  github.com/accelerator-toolkit/accelerator-toolkit/pkg/strutil  0.005s
+```
+
+17 个测试覆盖：Kind 生成、per-device entries、UUID fallback、环境变量、device nodes、so-only 过滤、hooks、边界条件、preview 渲染器等。
 
 ## Verification on Ascend Node
 
@@ -303,9 +355,9 @@ spec:
 
 ## Next Steps
 
-1. **在昇腾节点上验证 CDI spec 生成的正确性** — 构建 installer 镜像并部署，检查 `/etc/cdi/huawei.json` 内容是否包含正确的设备节点、库挂载和 hooks
-2. **确认 containerd 版本和 CDI 配置** — 需要 containerd >= 1.6 且配置中 `cdi_spec_dirs` 包含 `/etc/cdi`
-3. **测试 CDI 原生注入路径** — 创建不指定 `runtimeClassName` 的 Pod，通过 `cdi.k8s.io/devices` annotation 请求设备
+1. **~~在昇腾节点上验证 CDI spec 生成的正确性~~** — 已完成：8 个设备，每个 12 个环境变量、4 个设备节点、178 个挂载点、1 个 ldconfig hook
+2. **~~确认 containerd 版本和 CDI 配置~~** — 已完成：containerd 升级到 v2.2.1，CDI 配置正确
+3. **修改设备插件支持 CDI** — 当前阻塞项：Ascend 设备插件 v7.3.0 不返回 CDI 设备，需要修改插件代码或使用支持 CDI 的新版本
 4. **~~统一 `isSharedLibrary()` 实现~~** — 已完成：提取到 `pkg/strutil/`
 5. **~~合并 CDI 类型定义~~** — 已完成：静态渲染器移入 `pkg/cdi/preview.go`，删除 `pkg/profile/cdi.go`
 6. **如果 CDI 路径稳定，删除 runtime shim 和 hook (阶段 2)** — 可删除 `cmd/accelerator-container-runtime/`、`cmd/accelerator-container-hook/`、installer 的 `patchContainerd()` 步骤和 RuntimeClass 资源
