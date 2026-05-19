@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	resourceapi "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 
@@ -96,8 +97,11 @@ func deviceName(dev device.Device) string {
 }
 
 // CDIDeviceID returns the full CDI device ID for a DRA device,
-// in the format "<kind>=<device-name>".
-func CDIDeviceID(dev device.Device, p *profile.Profile) string {
+// in the format "<kind>=<device-name>-<claimUID>".
+// The claim UID is included to avoid CDI cache conflicts when
+// the same physical device is unprepared and re-prepared by a
+// different claim.
+func CDIDeviceID(dev device.Device, p *profile.Profile, claimUID types.UID) string {
 	kind := p.Kubernetes.ResourceNames[0]
-	return fmt.Sprintf("%s=%s", kind, deviceName(dev))
+	return fmt.Sprintf("%s=%s-%s", kind, deviceName(dev), string(claimUID))
 }

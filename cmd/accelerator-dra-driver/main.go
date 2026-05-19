@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -33,6 +34,7 @@ var (
 	kubeconfig   string
 	cdiDir       string
 	nodeName     string
+	podUID       string
 	resyncPeriod int
 )
 
@@ -47,6 +49,8 @@ func main() {
 		"Directory for CDI spec files")
 	flag.StringVar(&nodeName, "node-name", "",
 		"Node name (defaults to NODE_NAME env var)")
+	flag.StringVar(&podUID, "pod-uid", "",
+		"Pod UID for rolling update detection (defaults to POD_UID env var)")
 	flag.IntVar(&resyncPeriod, "resync-period", 60,
 		"ResourceSlice resync period in seconds")
 	flag.Parse()
@@ -56,6 +60,10 @@ func main() {
 	}
 	if nodeName == "" {
 		log.Fatal("--node-name or NODE_NAME is required")
+	}
+
+	if podUID == "" {
+		podUID = os.Getenv("POD_UID")
 	}
 
 	if err := run(); err != nil {
@@ -90,18 +98,25 @@ func run() error {
 
 	// Create the DRA plugin.
 	plugin := dra.NewPlugin(dra.PluginConfig{
-		Profile: p,
-		Devices: devs,
-		CDIDir:  cdiDir,
+		Profile:  p,
+		Devices:  devs,
+		CDIDir:   cdiDir,
+		PoolName: nodeName,
 	}, log)
 
 	// Start the DRA helper (gRPC server + registration + ResourceSlice controller).
-	helper, err := kubeletplugin.Start(ctx, plugin,
+	startOpts := []kubeletplugin.Option{
 		kubeletplugin.DriverName(dra.DriverName),
 		kubeletplugin.KubeClient(k8sClient),
 		kubeletplugin.NodeName(nodeName),
 		kubeletplugin.CDIDirectory(cdiDir),
-	)
+	}
+	if podUID != "" {
+		startOpts = append(startOpts, kubeletplugin.RollingUpdate(types.UID(podUID)))
+		log.WithField("podUID", podUID).Info("Rolling update enabled")
+	}
+
+	helper, err := kubeletplugin.Start(ctx, plugin, startOpts...)
 	if err != nil {
 		return fmt.Errorf("start kubelet plugin: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	resourceapi "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/device"
 	"github.com/accelerator-toolkit/accelerator-toolkit/pkg/profile"
@@ -146,17 +147,19 @@ func TestDeviceName_IndexFallback(t *testing.T) {
 func TestCDIDeviceID(t *testing.T) {
 	p := testProfile()
 	dev := device.Device{UUID: "GPU-aaaa", Index: 0}
-	id := CDIDeviceID(dev, p)
-	if id != "iluvatar.com/gpu=GPU-aaaa" {
-		t.Errorf("expected 'iluvatar.com/gpu=GPU-aaaa', got '%s'", id)
+	uid := types.UID("test-uid")
+	id := CDIDeviceID(dev, p, uid)
+	if id != "iluvatar.com/gpu=GPU-aaaa-test-uid" {
+		t.Errorf("expected 'iluvatar.com/gpu=GPU-aaaa-test-uid', got '%s'", id)
 	}
 }
 
 func TestCDIDeviceID_NoUUID(t *testing.T) {
 	p := testProfile()
 	dev := device.Device{Index: 3}
-	id := CDIDeviceID(dev, p)
-	if id != "iluvatar.com/gpu=index-3" {
-		t.Errorf("expected 'iluvatar.com/gpu=index-3', got '%s'", id)
+	uid := types.UID("uid-123")
+	id := CDIDeviceID(dev, p, uid)
+	if id != "iluvatar.com/gpu=index-3-uid-123" {
+		t.Errorf("expected 'iluvatar.com/gpu=index-3-uid-123', got '%s'", id)
 	}
 }

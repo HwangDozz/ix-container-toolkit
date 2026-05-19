@@ -1,7 +1,7 @@
 ---
 # RBAC for the accelerator DRA driver.
 # The driver needs access to:
-# - ResourceSlices: create/update/delete/list/watch (publishing device info)
+# - ResourceSlices: create/update/list/watch (publishing device info)
 # - ResourceClaims: get/list/watch (preparing allocated claims)
 # - Nodes: get (looking up node UID for ResourceSlice owner)
 apiVersion: v1
@@ -17,7 +17,7 @@ metadata:
 rules:
   - apiGroups: ["resource.k8s.io"]
     resources: ["resourceslices"]
-    verbs: ["create", "update", "delete", "list", "watch"]
+    verbs: ["create", "update", "list", "watch"]
   - apiGroups: ["resource.k8s.io"]
     resources: ["resourceclaims"]
     verbs: ["get", "list", "watch"]
