@@ -147,6 +147,9 @@ func (p *Plugin) UnprepareResourceClaims(ctx context.Context, claims []kubeletpl
 		p.mu.Unlock()
 
 		if !exists {
+			if err := p.cleanupCDIEntriesForClaimUID(claim.UID); err != nil {
+				p.log.WithError(err).WithField("claim", claim.Name).Warn("Failed to clean CDI entries for unknown prepared claim")
+			}
 			result[claim.UID] = nil
 			continue
 		}
@@ -188,6 +191,35 @@ func (p *Plugin) cleanupCDIEntries(cdiIDs []string) error {
 		return cdi.DeleteSpecFile(p.cdiDir, kind)
 	}
 
+	_, err = cdi.WriteSpec(remaining, p.cdiDir)
+	return err
+}
+
+func (p *Plugin) cleanupCDIEntriesForClaimUID(claimUID types.UID) error {
+	kind := p.profile.Kubernetes.ResourceNames[0]
+	existing, err := cdi.ReadSpec(p.cdiDir, kind)
+	if err != nil {
+		return fmt.Errorf("read CDI spec: %w", err)
+	}
+	if existing == nil {
+		return nil
+	}
+
+	suffix := "-" + string(claimUID)
+	var deviceNames []string
+	for _, dev := range existing.Devices {
+		if strings.HasSuffix(dev.Name, suffix) {
+			deviceNames = append(deviceNames, dev.Name)
+		}
+	}
+	if len(deviceNames) == 0 {
+		return nil
+	}
+
+	remaining := cdi.RemoveDevices(existing, deviceNames)
+	if remaining == nil {
+		return cdi.DeleteSpecFile(p.cdiDir, kind)
+	}
 	_, err = cdi.WriteSpec(remaining, p.cdiDir)
 	return err
 }

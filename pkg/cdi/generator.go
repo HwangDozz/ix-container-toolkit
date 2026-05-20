@@ -64,12 +64,13 @@ func (g *Generator) cdiKind() string {
 }
 
 // deviceName returns the CDI device name for a specific device.
-// Uses UUID when available, otherwise falls back to index.
+// Uses UUID when available, otherwise falls back to "index-N".
+// This must match the naming in pkg/dra/resourceslice.go deviceName().
 func (g *Generator) deviceName(dev device.Device) string {
 	if dev.UUID != "" {
 		return dev.UUID
 	}
-	return fmt.Sprintf("%d", dev.Index)
+	return fmt.Sprintf("index-%d", dev.Index)
 }
 
 // commonContainerEdits generates container edits shared by all device entries:
@@ -119,10 +120,9 @@ func (g *Generator) mergeDeviceEdits(common ContainerEdits, dev device.Device) C
 		}
 	}
 
-	var hooks *Hooks
-	if common.Hooks != nil {
-		hooksCopy := *common.Hooks
-		hooks = &hooksCopy
+	var hooks []Hook
+	if len(common.Hooks) > 0 {
+		hooks = append(hooks, common.Hooks...)
 	}
 
 	return ContainerEdits{
@@ -281,6 +281,11 @@ func (g *Generator) buildSoOnlyMounts(artifact profile.Artifact, hostDir string)
 			}
 		}
 
+		if info, err := os.Stat(resolved); err == nil && info.Size() == 0 {
+			g.log.WithField("path", resolved).Debug("skipping empty shared library")
+			continue
+		}
+
 		mounts = append(mounts, Mount{
 			HostPath:      resolved,
 			ContainerPath: dst,
@@ -297,27 +302,24 @@ func (g *Generator) buildSoOnlyMounts(artifact profile.Artifact, hostDir string)
 }
 
 // buildHooks generates CDI hooks for ldconfig if the profile linker requires it.
-func (g *Generator) buildHooks() *Hooks {
+func (g *Generator) buildHooks() []Hook {
 	linker := g.profile.Inject.Linker
 	if linker.ConfigPath == "" {
 		return nil
 	}
 
-	var hooks Hooks
+	var hooks []Hook
 
 	// Prestart hook to write ld.so.conf.d snippet and run ldconfig.
 	if linker.RunLdconfig {
-		hooks.Prestart = append(hooks.Prestart, Hook{
-			HookName: "accelerator-toolkit-ldconfig",
+		hooks = append(hooks, Hook{
+			HookName: "prestart",
 			Path:     "/sbin/ldconfig",
 			Args:     []string{"ldconfig"},
 		})
 	}
 
-	if len(hooks.Prestart) == 0 {
-		return nil
-	}
-	return &hooks
+	return hooks
 }
 
 // artifactContainerPath computes the container path for an artifact mount.

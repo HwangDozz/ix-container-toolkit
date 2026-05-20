@@ -30,7 +30,7 @@ func WriteSpec(spec *Spec, cdiDir string) (string, error) {
 	filename := specFilename(spec.Kind)
 	path := filepath.Join(cdiDir, filename)
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := writeFileAtomic(path, data, 0644); err != nil {
 		return "", fmt.Errorf("writing CDI spec to %s: %w", path, err)
 	}
 
@@ -133,6 +133,44 @@ func DeleteSpecFile(cdiDir, kind string) error {
 	} else if err != nil {
 		return fmt.Errorf("deleting CDI spec %s: %w", path, err)
 	}
+	return nil
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+
+	tmp, err := os.CreateTemp(dir, "."+base+".tmp-")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	removeTmp := true
+	defer func() {
+		if removeTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	removeTmp = false
 	return nil
 }
 

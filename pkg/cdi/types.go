@@ -26,7 +26,7 @@ type ContainerEdits struct {
 	Env         []string     `yaml:"env,omitempty"`
 	DeviceNodes []DeviceNode `yaml:"deviceNodes,omitempty"`
 	Mounts      []Mount      `yaml:"mounts,omitempty"`
-	Hooks       *Hooks       `yaml:"hooks,omitempty"`
+	Hooks       []Hook       `yaml:"hooks,omitempty"`
 }
 
 // DeviceNode describes a device node to expose in the container.
@@ -44,13 +44,8 @@ type Mount struct {
 	Options       []string `yaml:"options,omitempty"`
 }
 
-// Hooks contains lifecycle hooks injected via CDI.
-type Hooks struct {
-	Prestart  []Hook `yaml:"prestart,omitempty"`
-	Poststart []Hook `yaml:"poststart,omitempty"`
-}
-
-// Hook describes a single OCI lifecycle hook.
+// Hook describes a single OCI lifecycle hook in CDI format.
+// The hookName field indicates the lifecycle stage (e.g., "prestart", "createContainer").
 type Hook struct {
 	HookName string   `yaml:"hookName"`
 	Path     string   `yaml:"path"`

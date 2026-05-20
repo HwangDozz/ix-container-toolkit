@@ -57,6 +57,7 @@ inject:
         - /usr/local/Ascend/driver/lib64/driver
         - /usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_0/lib
         - /usr/local/Ascend/ascend-toolkit/latest/lib64
+        - /usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/lib64
         - /usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64
       containerPath: /usr/local/Ascend
       mode: so-only
@@ -70,6 +71,7 @@ inject:
         - /usr/local/Ascend/ascend-toolkit/latest/tools/ccec_compiler/bin
       containerPath: /usr/local/Ascend
       mode: bind
+      optional: true
   linker:
     strategy: ldconfig
     configPath: /etc/ld.so.conf.d/accelerator-toolkit.conf
@@ -79,13 +81,14 @@ inject:
       - /usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_0/lib
       - /usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64
       - /usr/local/Ascend/ascend-toolkit/latest/lib64
+      - /usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/lib64
       - /usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/opskernel
       - /usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/nnengine
     runLdconfig: true
   extraEnv:
-    PATH: '/usr/local/Ascend/ascend-toolkit/latest/bin:/usr/local/Ascend/ascend-toolkit/latest/tools/ccec_compiler/bin:/usr/local/python3.11.13/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
-    LD_LIBRARY_PATH: '/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_0/lib:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64/plugin:/usr/local/Ascend/ascend-toolkit/latest/lib64:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/opskernel:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/nnengine:/usr/local/Ascend/ascend-toolkit/latest/opp/built-in/op_impl/ai_core/tbe/op_tiling:/usr/local/Ascend/driver/lib64/common/:/usr/local/Ascend/driver/lib64/driver/:'
-    PYTHONPATH: '/usr/local/python3.11.13/lib/python3.11/site-packages:/opt/npu_computing_forecast:/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:/usr/local/Ascend/ascend-toolkit/latest/opp/built-in/op_impl/ai_core/tbe:'
+    PATH: '/usr/local/Ascend/ascend-toolkit/latest/bin:/usr/local/Ascend/ascend-toolkit/latest/tools/ccec_compiler/bin:/usr/local/python3.11.14/bin:/usr/local/python3.11.13/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+    LD_LIBRARY_PATH: '/usr/local/Ascend/driver/lib64/driver:/usr/local/Ascend/driver/lib64/common:/usr/local/Ascend/nnal/atb/latest/atb/cxx_abi_0/lib:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64:/usr/local/Ascend/ascend-toolkit/latest/tools/aml/lib64/plugin:/usr/local/Ascend/ascend-toolkit/latest/lib64:/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/lib64:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/opskernel:/usr/local/Ascend/ascend-toolkit/latest/lib64/plugin/nnengine:/usr/local/Ascend/ascend-toolkit/latest/opp/built-in/op_impl/ai_core/tbe/op_tiling:/usr/local/Ascend/driver/lib64/common/:/usr/local/Ascend/driver/lib64/driver/:'
+    PYTHONPATH: '/usr/local/python3.11.14/lib/python3.11/site-packages:/usr/local/python3.11.13/lib/python3.11/site-packages:/opt/npu_computing_forecast:/usr/local/Ascend/ascend-toolkit/latest/python/site-packages:/usr/local/Ascend/ascend-toolkit/latest/opp/built-in/op_impl/ai_core/tbe:'
     ASCEND_OPP_PATH: /usr/local/Ascend/ascend-toolkit/latest/opp
     ASCEND_AICPU_PATH: /usr/local/Ascend/ascend-toolkit/latest
     TOOLCHAIN_HOME: /usr/local/Ascend/ascend-toolkit/latest/toolkit

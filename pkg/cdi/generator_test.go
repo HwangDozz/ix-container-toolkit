@@ -30,7 +30,11 @@ func setupTestProfile(t *testing.T) (*profile.Profile, string) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"libtest.so", "libtest.so.1"} {
-		if err := os.WriteFile(filepath.Join(libDir, name), []byte("fake"), 0644); err != nil {
+		contents := []byte("fake")
+		if name == "libempty.so" {
+			contents = nil
+		}
+		if err := os.WriteFile(filepath.Join(libDir, name), contents, 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -167,8 +171,8 @@ func TestGenerate_DeviceFallbackToIndex(t *testing.T) {
 		t.Fatalf("Generate() error: %v", err)
 	}
 
-	if spec.Devices[0].Name != "0" {
-		t.Errorf("Devices[0].Name = %q, want %q", spec.Devices[0].Name, "0")
+	if spec.Devices[0].Name != "index-0" {
+		t.Errorf("Devices[0].Name = %q, want %q", spec.Devices[0].Name, "index-0")
 	}
 }
 
@@ -245,8 +249,12 @@ func TestGenerate_SoOnlyMounts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, name := range []string{"libcuda.so", "libcuda.so.1", "libthunk.so.1.2", "readme.txt", "libcuda.a"} {
-		if err := os.WriteFile(filepath.Join(libDir, name), []byte("fake"), 0644); err != nil {
+	for _, name := range []string{"libcuda.so", "libcuda.so.1", "libthunk.so.1.2", "libempty.so", "readme.txt", "libcuda.a"} {
+		contents := []byte("fake")
+		if name == "libempty.so" {
+			contents = nil
+		}
+		if err := os.WriteFile(filepath.Join(libDir, name), contents, 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -315,7 +323,7 @@ func TestGenerate_SoOnlyMounts(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"readme.txt", "libcuda.a", "python3"} {
+	for _, name := range []string{"readme.txt", "libcuda.a", "libempty.so", "python3"} {
 		if mountPaths[name] {
 			t.Errorf("unexpected mount for %q found", name)
 		}
@@ -333,16 +341,16 @@ func TestGenerate_Hooks(t *testing.T) {
 	}
 
 	hooks := spec.Devices[0].ContainerEdits.Hooks
-	if hooks == nil {
-		t.Fatal("Hooks is nil, expected ldconfig hook")
+	if len(hooks) == 0 {
+		t.Fatal("Hooks is empty, expected ldconfig hook")
 	}
 
-	if len(hooks.Prestart) != 1 {
-		t.Fatalf("len(Prestart) = %d, want 1", len(hooks.Prestart))
+	if hooks[0].HookName != "prestart" {
+		t.Errorf("Hooks[0].HookName = %q, want %q", hooks[0].HookName, "prestart")
 	}
 
-	if hooks.Prestart[0].Path != "/sbin/ldconfig" {
-		t.Errorf("Prestart[0].Path = %q, want %q", hooks.Prestart[0].Path, "/sbin/ldconfig")
+	if hooks[0].Path != "/sbin/ldconfig" {
+		t.Errorf("Hooks[0].Path = %q, want %q", hooks[0].Path, "/sbin/ldconfig")
 	}
 }
 

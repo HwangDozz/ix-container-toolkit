@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dra-cdi-python-diagnostic
+  namespace: crater-workspace
+  labels:
+    app: dra-cdi-python-diagnostic
+spec:
+  restartPolicy: Never
+  runtimeClassName: runc-cdi
+  nodeSelector:
+    kubernetes.io/hostname: kunlun-02
+  tolerations:
+    - key: node.kubernetes.io/disk-pressure
+      operator: Exists
+      effect: NoSchedule
+  priorityClassName: system-node-critical
+  containers:
+    - name: diagnostic
+      image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/ascend-910b-pytorch-backend:cann851-py311-torch271-npu271post3
+      imagePullPolicy: IfNotPresent
+      command:
+        - bash
+        - -lc
+        - |
+          set -ux
+          echo "=== identity ==="
+          id || true
+          echo "=== os-release ==="
+          cat /etc/os-release || true
+          echo "=== PATH ==="
+          printf '%s\n' "$PATH"
+          echo "=== python candidates ==="
+          command -v python3 || true
+          command -v python || true
+          command -v python3.11 || true
+          ls -la /usr/bin/python* /usr/local/bin/python* /usr/local/python*/bin/python* 2>/dev/null || true
+          find / -maxdepth 5 \( -name python -o -name python3 -o -name python3.11 \) 2>/dev/null | sort | head -100 || true
+          echo "=== package managers ==="
+          command -v apt-get || true
+          command -v apt || true
+          command -v dnf || true
+          command -v yum || true
+          command -v microdnf || true
+          command -v apk || true
+          echo "=== python import probes ==="
+          for py in python3 python python3.11; do
+            if command -v "$py" >/dev/null 2>&1; then
+              "$py" -c 'import sys, importlib; print(sys.executable); print(sys.version); [print(m, "ok" if importlib.util.find_spec(m) else "missing") for m in ["torch", "torch_npu", "numpy"]]' || true
+            fi
+          done
+          echo "=== ascend devices ==="
+          ls -la /dev/davinci* /dev/devmm_svm /dev/hisi_hdc 2>/dev/null || true
+          echo "=== key env ==="
+          env | sort | grep -E '^(ASCEND|LD_LIBRARY_PATH|PYTHONPATH|PATH|TOOLCHAIN_HOME|CRATER_ASCEND)' || true
+          echo "=== done ==="
+      resources:
+        claims:
+          - name: gpu
+        limits:
+          cpu: "4"
+          memory: 16Gi
+        requests:
+          cpu: "4"
+          memory: 16Gi
+  resourceClaims:
+    - name: gpu
+      resourceClaimTemplateName: ascend-gpu-claim

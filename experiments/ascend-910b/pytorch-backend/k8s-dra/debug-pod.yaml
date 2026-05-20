@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dra-cdi-debug
+  namespace: crater-workspace
+  labels:
+    app: dra-cdi-debug
+spec:
+  restartPolicy: Never
+  runtimeClassName: runc-cdi
+  nodeSelector:
+    kubernetes.io/hostname: kunlun-02
+  tolerations:
+    - key: node.kubernetes.io/disk-pressure
+      operator: Exists
+      effect: NoSchedule
+  priorityClassName: system-node-critical
+  containers:
+    - name: debug
+      image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/ascend-910b-pytorch-backend:cann851-py311-torch271-npu271post3
+      imagePullPolicy: IfNotPresent
+      command:
+        - bash
+        - -c
+        - |
+          echo "=== PATH ==="
+          echo "$PATH"
+          echo "=== which python3 ==="
+          which python3 || echo "python3 not found"
+          echo "=== ls /usr/bin/python* ==="
+          ls -la /usr/bin/python* 2>/dev/null || echo "no python in /usr/bin"
+          echo "=== ls /usr/local/bin/python* ==="
+          ls -la /usr/local/bin/python* 2>/dev/null || echo "no python in /usr/local/bin"
+          echo "=== ls /usr/local/python3.11.14/bin:/usr/local/python3.11.13/bin/ ==="
+          ls -la /usr/local/python3.11.14/bin:/usr/local/python3.11.13/bin/ 2>/dev/null || echo "dir not found"
+          echo "=== find python3 ==="
+          find / -name python3 -type f 2>/dev/null | head -10
+          echo "=== device check ==="
+          ls -la /dev/davinci* /dev/devmm_svm /dev/hisi_hdc 2>/dev/null || echo "no ascend devices"
+          echo "=== env vars ==="
+          env | sort
+          echo "=== DONE ==="
+          sleep 3600
+      resources:
+        claims:
+          - name: gpu
+        limits:
+          cpu: "4"
+          memory: 16Gi
+        requests:
+          cpu: "4"
+          memory: 16Gi
+  resourceClaims:
+    - name: gpu
+      resourceClaimTemplateName: ascend-gpu-claim

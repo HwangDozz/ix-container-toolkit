@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dra-cdi-smoke
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: dra-cdi-smoke
+    spec:
+      restartPolicy: Never
+      runtimeClassName: runc-cdi
+      nodeSelector:
+        kubernetes.io/hostname: kunlun-02
+      tolerations:
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      priorityClassName: system-node-critical
+      containers:
+        - name: smoke
+          image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/ascend-910b-pytorch-backend:cann851-py311-torch271-npu271post3
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euo pipefail
+              export PATH="/usr/local/python3.11.14/bin:/usr/local/python3.11.13/bin:${PATH}"
+              export PYTHONPATH="/usr/local/python3.11.14/lib/python3.11/site-packages:${PYTHONPATH:-}"
+              export TORCH_DEVICE_BACKEND_AUTOLOAD=0
+              export LD_LIBRARY_PATH="/usr/local/Ascend/cann-8.5.1/aarch64-linux/lib64:/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/lib64:$LD_LIBRARY_PATH"
+              resolve_python() {
+                for py in python3 python /usr/local/python*/bin/python3 /usr/local/python*/bin/python; do
+                  if command -v "$py" >/dev/null 2>&1; then command -v "$py"; return 0; fi
+                  if [ -x "$py" ]; then printf '%s\n' "$py"; return 0; fi
+                done
+                return 1
+              }
+              if ! PY="$(resolve_python)"; then
+                if command -v apt-get >/dev/null 2>&1; then
+                  apt-get update
+                  DEBIAN_FRONTEND=noninteractive apt-get install -y python3
+                  PY="$(command -v python3)"
+                else
+                  echo "No python interpreter or supported package manager found" >&2
+                  exit 127
+                fi
+              fi
+              echo "=== libhccl preflight ==="
+              ls -lah /usr/local/Ascend/cann-8.5.1/lib64/libhccl.so /usr/local/Ascend/ascend-toolkit/latest/lib64/libhccl.so 2>/dev/null || true
+              stat /usr/local/Ascend/cann-8.5.1/lib64/libhccl.so || true
+              readlink -f /usr/local/Ascend/cann-8.5.1/lib64/libhccl.so || true
+              od -An -tx1 -N64 /usr/local/Ascend/cann-8.5.1/lib64/libhccl.so || true
+              "$PY" -c 'import sys; print(sys.executable); print(sys.version)'
+              "$PY" /opt/ascend-910b-backend/smoke_tests/ascend_910b_smoke.py --level l3 --steps 10
+          resources:
+            claims:
+              - name: gpu
+            limits:
+              cpu: "4"
+              memory: 16Gi
+            requests:
+              cpu: "4"
+              memory: 16Gi
+      resourceClaims:
+        - name: gpu
+          resourceClaimTemplateName: ascend-gpu-claim

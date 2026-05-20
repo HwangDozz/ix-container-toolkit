@@ -66,6 +66,11 @@ spec:
             # Profile and config are shared with the installer.
             - name: host-etc-accelerator
               mountPath: /etc/accelerator-toolkit
+            # Host driver/toolkit paths must be visible at their real absolute paths
+            # because CDI generation resolves profile hostPaths inside this container.
+            - name: host-usr-local-ascend
+              mountPath: /usr/local/Ascend
+              readOnly: true
             # Kubelet plugin registration and DRA gRPC sockets.
             - name: kubelet-plugins
               mountPath: /var/lib/kubelet/plugins
@@ -91,6 +96,9 @@ spec:
         - name: host-etc-accelerator
           hostPath:
             path: /etc/accelerator-toolkit
+        - name: host-usr-local-ascend
+          hostPath:
+            path: /usr/local/Ascend
         - name: kubelet-plugins
           hostPath:
             path: /var/lib/kubelet/plugins

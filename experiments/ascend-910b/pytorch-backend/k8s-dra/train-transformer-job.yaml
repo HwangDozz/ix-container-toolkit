@@ -1,0 +1,73 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dra-cdi-train-transformer
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: dra-cdi-train-transformer
+    spec:
+      restartPolicy: Never
+      runtimeClassName: runc-cdi
+      nodeSelector:
+        kubernetes.io/hostname: kunlun-02
+      tolerations:
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      priorityClassName: system-node-critical
+      containers:
+        - name: train
+          image: crater-harbor.act.buaa.edu.cn/xpu-huangsy/ascend-910b-pytorch-backend:cann851-py311-torch271-npu271post3
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euo pipefail
+              export PATH="/usr/local/python3.11.14/bin:/usr/local/python3.11.13/bin:${PATH}"
+              export PYTHONPATH="/usr/local/python3.11.14/lib/python3.11/site-packages:${PYTHONPATH:-}"
+              export TORCH_DEVICE_BACKEND_AUTOLOAD=0
+              resolve_python() {
+                for py in python3 python /usr/local/python*/bin/python3 /usr/local/python*/bin/python; do
+                  if command -v "$py" >/dev/null 2>&1; then command -v "$py"; return 0; fi
+                  if [ -x "$py" ]; then printf '%s\n' "$py"; return 0; fi
+                done
+                return 1
+              }
+              if ! PY="$(resolve_python)"; then
+                if command -v apt-get >/dev/null 2>&1; then
+                  apt-get update
+                  DEBIAN_FRONTEND=noninteractive apt-get install -y python3
+                  PY="$(command -v python3)"
+                else
+                  echo "No python interpreter or supported package manager found" >&2
+                  exit 127
+                fi
+              fi
+              "$PY" -c 'import sys; print(sys.executable); print(sys.version)'
+              "$PY" /opt/portable-training-tests/tiny_transformer_train.py --steps 20 --batch-size 8 --seq-len 64
+          volumeMounts:
+            - name: portable-training-tests
+              mountPath: /opt/portable-training-tests
+              readOnly: true
+          resources:
+            claims:
+              - name: gpu
+            limits:
+              cpu: "4"
+              memory: 16Gi
+            requests:
+              cpu: "4"
+              memory: 16Gi
+      resourceClaims:
+        - name: gpu
+          resourceClaimTemplateName: ascend-gpu-claim
+      volumes:
+        - name: portable-training-tests
+          configMap:
+            name: ascend-910b-portable-training-tests
+            defaultMode: 0755

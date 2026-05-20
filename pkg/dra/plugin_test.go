@@ -230,6 +230,39 @@ func TestUnprepareClaim_DeletesEmptySpec(t *testing.T) {
 	}
 }
 
+func TestUnprepareClaim_CleansCDIEntriesAfterRestart(t *testing.T) {
+	plugin, cdiDir, _ := setupTestPlugin(t)
+
+	claimA := makeClaim("uid-a", "claim-a", "GPU-aaaa")
+	results, err := plugin.PrepareResourceClaims(nil, []*resourceapi.ResourceClaim{claimA})
+	if err != nil {
+		t.Fatalf("PrepareResourceClaims error: %v", err)
+	}
+	if results[types.UID("uid-a")].Err != nil {
+		t.Fatalf("prepare A error: %v", results[types.UID("uid-a")].Err)
+	}
+
+	restarted := NewPlugin(PluginConfig{
+		Profile:  plugin.profile,
+		Devices:  plugin.devices,
+		CDIDir:   cdiDir,
+		PoolName: plugin.poolName,
+	}, testLogger())
+
+	if err := restarted.unprepareClaim(types.UID("uid-a")); err != nil {
+		t.Fatalf("unprepare after restart error: %v", err)
+	}
+
+	kind := plugin.profile.Kubernetes.ResourceNames[0]
+	spec, err := cdi.ReadSpec(cdiDir, kind)
+	if err != nil {
+		t.Fatalf("ReadSpec error: %v", err)
+	}
+	if spec != nil {
+		t.Fatalf("CDI spec should be deleted after restart cleanup, got %#v", spec)
+	}
+}
+
 func TestUnprepareClaim_IdempotentForUnknownUID(t *testing.T) {
 	plugin, _, _ := setupTestPlugin(t)
 
@@ -290,7 +323,6 @@ func TestExtractCDIDeviceNames(t *testing.T) {
 	}
 }
 
-
 // unprepareClaim is a test helper that calls UnprepareResourceClaims for a single UID.
 func (p *Plugin) unprepareClaim(uid types.UID) error {
 	results, err := p.UnprepareResourceClaims(nil, []kubeletplugin.NamespacedObject{
@@ -304,4 +336,3 @@ func (p *Plugin) unprepareClaim(uid types.UID) error {
 	}
 	return results[uid]
 }
-
