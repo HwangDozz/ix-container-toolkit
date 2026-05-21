@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: accelerator-dra-driver-iluvatar
+  namespace: kube-system
+  labels:
+    app: accelerator-dra-driver-iluvatar
+spec:
+  selector:
+    matchLabels:
+      app: accelerator-dra-driver-iluvatar
+  template:
+    metadata:
+      labels:
+        app: accelerator-dra-driver-iluvatar
+    spec:
+      serviceAccountName: accelerator-dra-driver
+      nodeSelector:
+        kubernetes.io/hostname: inspur-01
+      tolerations:
+        - operator: Exists
+      priorityClassName: system-node-critical
+      containers:
+        - name: dra-driver
+          image: crater-harbor.act.buaa.edu.cn/library/ubuntu:22.04
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/local/bin/accelerator-dra-driver
+          args:
+            - --profile=/etc/accelerator-toolkit/profiles/active.yaml
+            - --cdi-dir=/etc/cdi
+            - --node-name=$(NODE_NAME)
+            - --pod-uid=$(POD_UID)
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: driver-binary
+              mountPath: /usr/local/bin/accelerator-dra-driver
+              readOnly: true
+            - name: active-profile
+              mountPath: /etc/accelerator-toolkit/profiles/active.yaml
+              readOnly: true
+            - name: host-etc-cdi
+              mountPath: /etc/cdi
+            - name: host-dev
+              mountPath: /dev
+              readOnly: true
+            - name: kubelet-plugin-dir
+              mountPath: /var/lib/kubelet/plugins/gpu.accelerator-toolkit.io
+            - name: kubelet-plugins-registry
+              mountPath: /var/lib/kubelet/plugins_registry
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - test -S /var/lib/kubelet/plugins/gpu.accelerator-toolkit.io/dra.sock || ls /var/lib/kubelet/plugins/gpu.accelerator-toolkit.io/dra-*.sock >/dev/null 2>&1
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      volumes:
+        - name: driver-binary
+          hostPath:
+            path: /home/huangsy/project/ix-container-toolkit/bin/linux/amd64/accelerator-dra-driver
+            type: File
+        - name: active-profile
+          hostPath:
+            path: /home/huangsy/project/ix-container-toolkit/profiles/iluvatar-bi-v150.yaml
+            type: File
+        - name: host-etc-cdi
+          hostPath:
+            path: /etc/cdi
+            type: DirectoryOrCreate
+        - name: host-dev
+          hostPath:
+            path: /dev
+        - name: kubelet-plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/gpu.accelerator-toolkit.io
+            type: DirectoryOrCreate
+        - name: kubelet-plugins
+          hostPath:
+            path: /var/lib/kubelet/plugins
+        - name: kubelet-plugins-registry
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+---
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: iluvatar-gpu
+spec:
+  selectors:
+    - cel:
+        expression: device.driver == "gpu.accelerator-toolkit.io"
+---
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: iluvatar-gpu-claim
+  namespace: crater-workspace
+spec:
+  spec:
+    devices:
+      requests:
+        - name: gpu
+          exactly:
+            deviceClassName: iluvatar-gpu
+            allocationMode: ExactCount
+            count: 1

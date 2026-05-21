@@ -1,0 +1,87 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dra-cdi-iluvatar-oci-spec-compare
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: inspur-01
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: compare
+          image: crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euo pipefail
+              RUNC_ID="89a578ebffff24409bd099d825b008d95675f7450a9cbdf949078cde116c521a"
+              IX_ID="267bc4eb2c0c749d416da5ea09068ffa19c168ebfcd38f8e2a3c382ebc801d15"
+              find /host/run /host/storage/containerd-data /host/storage/containerd -path "*/${RUNC_ID}/config.json" -o -path "*/${IX_ID}/config.json" 2>/dev/null | sort
+              python3 - <<'PY'
+              import json
+              import os
+              from pathlib import Path
+
+              ids = {
+                  "runc_cdi": "89a578ebffff24409bd099d825b008d95675f7450a9cbdf949078cde116c521a",
+                  "ix": "267bc4eb2c0c749d416da5ea09068ffa19c168ebfcd38f8e2a3c382ebc801d15",
+              }
+              roots = [Path("/host/run"), Path("/host/storage/containerd-data"), Path("/host/storage/containerd")]
+
+              def find_config(cid):
+                  for root in roots:
+                      if not root.exists():
+                          continue
+                      for p in root.rglob("config.json"):
+                          if cid in str(p):
+                              return p
+                  return None
+
+              def summarize(path):
+                  spec = json.loads(path.read_text())
+                  linux = spec.get("linux", {})
+                  return {
+                      "path": str(path),
+                      "process_env_focus": sorted(
+                          e for e in spec.get("process", {}).get("env", [])
+                          if e.startswith(("ILUVATAR", "COREX", "LD_LIBRARY_PATH=", "PATH=", "PYTHONPATH="))
+                      ),
+                      "hooks": spec.get("hooks", {}),
+                      "mounts_focus": [
+                          {
+                              "destination": m.get("destination"),
+                              "source": m.get("source"),
+                              "type": m.get("type"),
+                              "options": m.get("options", []),
+                          }
+                          for m in spec.get("mounts", [])
+                          if any(x in (m.get("destination") or "") + " " + (m.get("source") or "")
+                                 for x in ["iluvatar", "corex", "ix", "ld.so", "/dev"])
+                      ],
+                      "linux_devices": linux.get("devices", []),
+                      "linux_resources_devices": linux.get("resources", {}).get("devices", []),
+                  }
+
+              out = {}
+              for name, cid in ids.items():
+                  path = find_config(cid)
+                  out[name] = {"error": "config.json not found"} if path is None else summarize(path)
+              print(json.dumps(out, indent=2, sort_keys=True))
+              PY
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+              readOnly: true
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /

@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dra-cdi-iluvatar-host-device-query
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: inspur-01
+      containers:
+        - name: query
+          image: crater-harbor.act.buaa.edu.cn/library/ubuntu:22.04
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euxo pipefail
+              echo "=== host /dev iluvatar/ix/gpu candidates ==="
+              find /host/dev -maxdepth 2 \( \
+                -name 'iluvatar*' -o \
+                -name 'ix*' -o \
+                -name 'corex*' -o \
+                -name 'dri' -o \
+                -name 'renderD*' -o \
+                -name 'card*' \
+              \) -printf '%M %u %g %p -> %l\n' | sort
+              echo "=== host /dev char devices with ix/corex/iluvatar names ==="
+              find /host/dev -maxdepth 2 -type c -printf '%M %u %g %p\n' | grep -Ei 'iluvatar|ix|corex|dri|render|card' | sort || true
+              echo "=== host /proc/devices ==="
+              cat /host/proc/devices
+              echo "=== container visible env ==="
+              env | sort
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+              readOnly: true
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /

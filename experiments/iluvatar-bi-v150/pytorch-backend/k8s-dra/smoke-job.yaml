@@ -1,0 +1,51 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dra-cdi-iluvatar-smoke
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: dra-cdi-iluvatar-smoke
+    spec:
+      restartPolicy: Never
+      runtimeClassName: runc-cdi
+      nodeSelector:
+        kubernetes.io/hostname: inspur-01
+      tolerations:
+        - operator: Exists
+      priorityClassName: system-node-critical
+      containers:
+        - name: smoke
+          image: crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - /opt/iluvatar-backend-tests/iluvatar_bi_v150_smoke.py
+            - --level
+            - l3
+            - --steps
+            - "10"
+          volumeMounts:
+            - name: iluvatar-backend-tests
+              mountPath: /opt/iluvatar-backend-tests
+              readOnly: true
+          resources:
+            claims:
+              - name: gpu
+            limits:
+              cpu: "4"
+              memory: 16Gi
+            requests:
+              cpu: "4"
+              memory: 16Gi
+      resourceClaims:
+        - name: gpu
+          resourceClaimTemplateName: iluvatar-gpu-claim
+      volumes:
+        - name: iluvatar-backend-tests
+          configMap:
+            name: iluvatar-bi-v150-portable-training-tests
+            defaultMode: 0755

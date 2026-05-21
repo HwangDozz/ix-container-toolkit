@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dra-cdi-iluvatar-debug-ix
+  namespace: crater-workspace
+  labels:
+    app: dra-cdi-iluvatar-debug-ix
+spec:
+  restartPolicy: Never
+  runtimeClassName: ix
+  nodeSelector:
+    kubernetes.io/hostname: inspur-01
+  tolerations:
+    - operator: Exists
+  containers:
+    - name: debug
+      image: crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+      imagePullPolicy: IfNotPresent
+      command:
+        - bash
+        - -lc
+        - |
+          set -euxo pipefail
+          find /dev -maxdepth 2 \( -name 'iluvatar*' -o -name 'renderD*' -o -name 'card*' \) -printf '%M %u %g %p -> %l\n' | sort || true
+          env | sort | grep -E 'ILUVATAR|COREX|CUDA|LD_LIBRARY_PATH|PATH' || true
+          ixsmi || true
+          sleep 3600
+      resources:
+        claims:
+          - name: gpu
+        limits:
+          cpu: "4"
+          memory: 16Gi
+        requests:
+          cpu: "4"
+          memory: 16Gi
+  resourceClaims:
+    - name: gpu
+      resourceClaimTemplateName: iluvatar-gpu-claim

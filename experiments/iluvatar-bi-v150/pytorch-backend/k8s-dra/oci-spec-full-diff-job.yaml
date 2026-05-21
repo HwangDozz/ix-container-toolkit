@@ -1,0 +1,93 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dra-cdi-iluvatar-oci-spec-full-diff
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: inspur-01
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: diff
+          image: crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euo pipefail
+              python3 - <<'PY'
+              import difflib
+              import json
+              from pathlib import Path
+
+              ids = {
+                  "runc_cdi": "89a578ebffff24409bd099d825b008d95675f7450a9cbdf949078cde116c521a",
+                  "ix": "267bc4eb2c0c749d416da5ea09068ffa19c168ebfcd38f8e2a3c382ebc801d15",
+              }
+              roots = [Path("/host/storage/containerd-data/io.containerd.runtime.v2.task/k8s.io")]
+
+              def find_config(cid):
+                  for root in roots:
+                      p = root / cid / "config.json"
+                      if p.exists():
+                          return p
+                  raise FileNotFoundError(cid)
+
+              def normalize(spec):
+                  spec = json.loads(json.dumps(spec))
+
+                  def scrub(obj):
+                      if isinstance(obj, dict):
+                          return {
+                              k: scrub(v)
+                              for k, v in sorted(obj.items())
+                              if k not in {
+                                  "hostname",
+                                  "cgroupsPath",
+                              }
+                          }
+                      if isinstance(obj, list):
+                          vals = [scrub(v) for v in obj]
+                          if all(isinstance(v, str) for v in vals):
+                              return sorted(vals)
+                          if all(isinstance(v, dict) for v in vals):
+                              return sorted(vals, key=lambda x: json.dumps(x, sort_keys=True))
+                          return vals
+                      if isinstance(obj, str):
+                          for cid in ids.values():
+                              obj = obj.replace(cid, "<CID>")
+                          obj = obj.replace("62f1421d-fa18-4ee1-aae0-79d64d7fd4c7", "<PODUID>")
+                          obj = obj.replace("f55559f9-b5e3-4fbe-841a-148d462fa03b", "<PODUID>")
+                          obj = obj.replace("8638890ac1c6d90dc42a71959f3786d5bd5e261adf0ebd31416b15a7f846ad0f", "<SANDBOX>")
+                          obj = obj.replace("25045e4d149dc13c59f04da762fcf8ad948f1cdeb2c2ac8cb43c62ea6480c5b0", "<SANDBOX>")
+                          obj = obj.replace("iluvatar0", "iluvatarX").replace("iluvatar1", "iluvatarX")
+                          return obj
+                      return obj
+
+                  return scrub(spec)
+
+              specs = {name: normalize(json.loads(find_config(cid).read_text())) for name, cid in ids.items()}
+              left = json.dumps(specs["runc_cdi"], indent=2, sort_keys=True).splitlines()
+              right = json.dumps(specs["ix"], indent=2, sort_keys=True).splitlines()
+              diff = list(difflib.unified_diff(left, right, fromfile="runc-cdi", tofile="ix", lineterm=""))
+              if not diff:
+                  print("OCI config equivalent after normalizing container-specific IDs and device index")
+              else:
+                  print("\n".join(diff[:600]))
+              PY
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+              readOnly: true
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /

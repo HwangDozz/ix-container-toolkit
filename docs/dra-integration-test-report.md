@@ -519,3 +519,143 @@ go test ./pkg/cdi ./pkg/dra ./pkg/device ./pkg/profile ./pkg/strutil ./cmd/accel
 git diff --check
 kubectl apply --dry-run=client -f deployments/dra-driver/daemonset.yaml
 ```
+
+---
+
+# Iluvatar BI-V150 on inspur-01 E2E Results
+
+Date: 2026-05-21
+
+## Environment
+
+| Item | Value |
+|------|-------|
+| Node | inspur-01 |
+| OS / Arch | Ubuntu 22.04, amd64 |
+| Kubernetes | v1.35.2 |
+| containerd | 1.7.28 |
+| GPU | Iluvatar BI-V150 x 8 |
+| Device nodes | /dev/iluvatar0 - /dev/iluvatar7 |
+| Final runtime path | RuntimeClass runc-cdi -> standard runc with containerd CDI enabled |
+| Diagnostic runtime path | RuntimeClass ix -> ix-container-runtime + ix-container-hook |
+
+containerd was not upgraded to 2.2.1 because CDI injection worked after enabling CDI in the existing 1.7.28 config. The existing storage settings were preserved:
+
+- `root = "/storage/containerd"`
+- `state = "/storage/containerd-data"`
+
+The runtime config was extended with `enable_cdi = true` and a dedicated `runc-cdi` handler using `/usr/sbin/runc`.
+
+## RuntimeClass ix Conclusion
+
+`runtimeClassName: ix` selects the containerd runtime handler named `ix`, which is configured to invoke `/usr/local/bin/ix-container-runtime`. That wrapper injects `/usr/local/bin/ix-container-hook` during container create and represents the legacy runtime/hook path.
+
+For DRA + CDI validation, `ix` must only be used as a diagnostic comparison path. The target path is `runtimeClassName: runc-cdi`, where kubelet passes DRA-allocated CDI device IDs to containerd and containerd applies the CDI spec directly.
+
+## Deployment
+
+Manifest directory:
+
+`experiments/iluvatar-bi-v150/pytorch-backend/k8s-dra/`
+
+Main resources:
+
+- `daemonset-local-binary.yaml`: DRA driver DaemonSet pinned to inspur-01, using the local amd64 binary and `profiles/iluvatar-bi-v150.yaml`.
+- `debug-pod.yaml`: pure `runc-cdi` debug Pod.
+- `smoke-job.yaml`: pure `runc-cdi` framework smoke Job.
+- `train-single-job.yaml`: pure `runc-cdi` single-card training Job.
+- `*-ix-runtime.yaml`: legacy runtime comparison manifests only.
+- `oci-spec-compare-job.yaml` and `oci-spec-full-diff-job.yaml`: host-side OCI spec comparison utilities.
+
+Driver status:
+
+- DaemonSet: `kube-system/accelerator-dra-driver-iluvatar`
+- Pod: `1/1 Running` on inspur-01
+- Logs:
+  - `Loaded profile profile=iluvatar-bi-v150`
+  - `Discovered devices count=8`
+  - `DRA driver started devices=8 driver=gpu.accelerator-toolkit.io node=inspur-01 resource=iluvatar.com/gpu`
+
+## DRA and CDI Validation
+
+ResourceSlice:
+
+- Driver: `gpu.accelerator-toolkit.io`
+- Node: `inspur-01`
+- Devices: `index-0` through `index-7`
+- Attributes include `vendor=Iluvatar`, `model=BI-V150`, and `/dev/iluvatarN` paths.
+
+Claim-scoped prepare/unprepare was validated from driver logs:
+
+- Smoke Job prepared `iluvatar.com/gpu=index-2-<claimUID>` and later unprepared it.
+- Single-card training prepared `iluvatar.com/gpu=index-3-<claimUID>` and later unprepared it.
+
+Pure `runc-cdi` debug Pod validation:
+
+- ResourceClaim reached `allocated,reserved`.
+- Container saw only the allocated `/dev/iluvatarN`.
+- `ILUVATAR_COREX_VISIBLE_DEVICES=all` was injected.
+- `ixsmi` worked.
+- `torch.cuda.is_available()` returned `true`.
+- `torch.cuda.device_count()` returned `1`.
+
+## Workload Results
+
+Pure `runc-cdi` smoke Job:
+
+```json
+{
+  "torch": "2.4.1",
+  "torch_cuda_version": "10.2",
+  "device": "cuda:0",
+  "cuda_is_available": true,
+  "cuda_device_count": 1,
+  "steps": 10,
+  "first_loss": 14399.4033203125,
+  "final_loss": 0.0
+}
+```
+
+Pure `runc-cdi` single-card training Job:
+
+```json
+{
+  "torch": "2.4.1",
+  "device": "cuda:0",
+  "distributed": false,
+  "steps": 20,
+  "batch_size": 32,
+  "first_loss": 2.4377217292785645,
+  "final_loss": 2.2593231201171875
+}
+```
+
+Diagnostic `ix` runtime comparison:
+
+- DRA ResourceClaim and CDI injection also worked.
+- Minimal tensor/matmul/backward diagnostic completed.
+- The comparison proved legacy runtime/hook can coexist with DRA allocation, but it is not the desired final architecture.
+
+## OCI Comparison
+
+The full OCI config diff between a pure `runc-cdi` debug container and an `ix` debug container showed no material differences after normalizing pod/container IDs and device index:
+
+- Both had only the CDI prestart `/sbin/ldconfig` hook in the final OCI config.
+- Both had the allocated `/dev/iluvatarN` device node and matching cgroup device allow rule.
+- Relevant env vars and mounts were equivalent.
+
+This means any old `ix-container-runtime` side effect is either outside the final persisted OCI config or not needed for the passing `runc-cdi` smoke/train jobs.
+
+## Final Status
+
+The inspur-01 Iluvatar BI-V150 DRA + CDI end-to-end path passed:
+
+- DaemonSet deployment: passed
+- Device discovery and ResourceSlice publication: passed
+- Pod-level DRA allocation and CDI injection: passed
+- In-container device and environment validation: passed
+- Framework smoke test on pure `runc-cdi`: passed
+- Single-card training on pure `runc-cdi`: passed
+- Claim cleanup after Job completion: passed
+
+`runtimeClassName: ix` remains useful only for diagnostics. The final target should continue to be DRA + CDI + standard runc through `runtimeClassName: runc-cdi`, removing dependence on the old hook/runtime path.

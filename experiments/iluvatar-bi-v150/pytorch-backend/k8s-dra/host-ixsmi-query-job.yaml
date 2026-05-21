@@ -1,0 +1,31 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dra-cdi-iluvatar-host-ixsmi-query
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: inspur-01
+      containers:
+        - name: query
+          image: crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euxo pipefail
+              ls -la /dev/iluvatar* 2>/dev/null || true
+              ixsmi || true
+              ixsmi --query-gpu=index,uuid --format=csv
+          volumeMounts:
+            - name: host-dev
+              mountPath: /dev
+      volumes:
+        - name: host-dev
+          hostPath:
+            path: /dev

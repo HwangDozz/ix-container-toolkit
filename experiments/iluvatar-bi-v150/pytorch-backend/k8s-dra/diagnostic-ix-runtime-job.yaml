@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dra-cdi-iluvatar-ix-runtime-diagnostic
+  namespace: crater-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: dra-cdi-iluvatar-ix-runtime-diagnostic
+    spec:
+      restartPolicy: Never
+      runtimeClassName: ix
+      nodeSelector:
+        kubernetes.io/hostname: inspur-01
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: diagnostic
+          image: crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -lc
+            - |
+              set -euxo pipefail
+              find /dev -maxdepth 2 \( -name 'iluvatar*' -o -name 'renderD*' -o -name 'card*' \) -printf '%M %u %g %p -> %l\n' | sort
+              env | sort | grep -E 'ILUVATAR|COREX|LD_LIBRARY_PATH|PATH'
+              ixsmi || true
+              python3 - <<'PY'
+              import json
+              import os
+              import torch
+              print(json.dumps({
+                  "cuda_is_available": torch.cuda.is_available(),
+                  "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+                  "ILUVATAR_COREX_VISIBLE_DEVICES": os.environ.get("ILUVATAR_COREX_VISIBLE_DEVICES", ""),
+                  "ILUVATAR_COREX_REPLICA_DEVICES": os.environ.get("ILUVATAR_COREX_REPLICA_DEVICES", ""),
+              }, indent=2), flush=True)
+              torch.cuda.set_device(0)
+              x = torch.randn(32, 128, device="cuda:0", requires_grad=True)
+              w = torch.randn(128, 256, device="cuda:0", requires_grad=True)
+              y = (x @ w).relu().sum()
+              y.backward()
+              print(json.dumps({"op": "matmul_backward", "result": float(y.detach().cpu())}, indent=2), flush=True)
+              PY
+          resources:
+            claims:
+              - name: gpu
+            limits:
+              cpu: "4"
+              memory: 16Gi
+            requests:
+              cpu: "4"
+              memory: 16Gi
+      resourceClaims:
+        - name: gpu
+          resourceClaimTemplateName: iluvatar-gpu-claim

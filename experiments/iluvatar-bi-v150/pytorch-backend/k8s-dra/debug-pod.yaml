@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dra-cdi-iluvatar-debug
+  namespace: crater-workspace
+  labels:
+    app: dra-cdi-iluvatar-debug
+spec:
+  restartPolicy: Never
+  runtimeClassName: runc-cdi
+  nodeSelector:
+    kubernetes.io/hostname: inspur-01
+  tolerations:
+    - operator: Exists
+  priorityClassName: system-node-critical
+  containers:
+    - name: debug
+      image: crater-harbor.act.buaa.edu.cn/tianshu/corex:4.3.0
+      imagePullPolicy: IfNotPresent
+      command:
+        - bash
+        - -lc
+        - |
+          set -euxo pipefail
+          echo "=== device check ==="
+          find /dev -maxdepth 2 \( -name 'iluvatar*' -o -name 'ix*' -o -name 'corex*' -o -name 'renderD*' -o -name 'card*' \) -printf '%M %u %g %p -> %l\n' | sort || true
+          echo "=== env vars ==="
+          env | sort | grep -E 'ILUVATAR|COREX|CUDA|LD_LIBRARY_PATH|PATH' || true
+          echo "=== corex paths ==="
+          ls -la /usr/local/corex /usr/local/corex/lib64 /usr/local/corex/lib /usr/local/corex/bin 2>/dev/null || true
+          echo "=== ixsmi ==="
+          command -v ixsmi || true
+          ixsmi || true
+          echo "=== torch probe ==="
+          python3 - <<'PY'
+          import json
+          import os
+          import torch
+          print(json.dumps({
+              "torch": torch.__version__,
+              "torch_cuda_version": getattr(torch.version, "cuda", None),
+              "cuda_is_available": torch.cuda.is_available(),
+              "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+              "ILUVATAR_COREX_VISIBLE_DEVICES": os.environ.get("ILUVATAR_COREX_VISIBLE_DEVICES", ""),
+          }, indent=2))
+          PY
+          sleep 3600
+      resources:
+        claims:
+          - name: gpu
+        limits:
+          cpu: "4"
+          memory: 16Gi
+        requests:
+          cpu: "4"
+          memory: 16Gi
+  resourceClaims:
+    - name: gpu
+      resourceClaimTemplateName: iluvatar-gpu-claim
